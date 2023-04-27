@@ -18,6 +18,7 @@
 // Date: Wed Apr 15 18:47:15 CST 2023
 #ifndef _CPLUSPLUS_THEN_H
 #define _CPLUSPLUS_THEN_H
+#include "cplusplus/typelist.h"
 #include "cplusplus/details/then.h"
 namespace cplusplus {
 template <typename S, typename F>
