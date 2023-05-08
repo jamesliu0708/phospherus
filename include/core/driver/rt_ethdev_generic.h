@@ -94,4 +94,28 @@ typedef uint16_t queueid_t;
 #define MAX_SEGS_BUFFER_SPLIT 8 /**< nb_segs is a 8-bit unsigned char. */
 #endif // MAX_SEGS_BUFFER_SPLIT
 
+/*
+ * Configurable number of RX/TX ring descriptors.
+ * Defaults are supplied by drivers via ethdev.
+ */
+#define RX_DESC_DEFAULT 1024
+#define TX_DESC_DEFAULT 1024
+
+#ifndef RX_DESC_MAX
+#define RX_DESC_MAX    2048
+#endif // RX_DESC_MAX
+#ifndef TX_DESC_MAX
+#define TX_DESC_MAX    2048
+#endif
+
+#ifndef MAX_PKT_BURST
+#define MAX_PKT_BURST 512
+#endif // MAX_PKT_BURST
+
+#ifndef RSS_TYPES_CHAR_NUM_PER_LINE
+#define RSS_TYPES_CHAR_NUM_PER_LINE 64
+#endif // RSS_TYPES_CHAR_NUM_PER_LINE
+
+#define DEF_MBUF_CACHE 250
+
 #endif // _RT_ETHDEV_GENERIC_H

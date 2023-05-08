@@ -15,12 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Date: Thur Apr 15 16:07:00 CST 2023
-#ifndef _CORE_NET_GENERIC_INCLUDE_H
-#define _CORE_NET_GENERIC_INCLUDE_H
+// Date: Mon May 8 13:03:15 CST 2023
+#ifndef _APP_MD_DATASTRUCT_H
+#define _APP_MD_DATASTRUCT_H
 
-#ifndef RSS_TYPES_CHAR_NUM_PER_LINE
-#define RSS_TYPES_CHAR_NUM_PER_LINE 64
-#endif // RSS_TYPES_CHAR_NUM_PER_LINE
+#include <app/datastruct.h>
 
-#endif //_NET_GENERIC_INCLUDE_H
+namespace phphs {
+
+struct mdfield {
+    instrref_t instr_id;
+    int bid_price[5];
+    int bid_volume[5];
+    int ask_price[5];
+    int ask_volume[5];
+};
+
+} // phphs
+
+#endif // _APP_MD_DATASTRUCT_H
