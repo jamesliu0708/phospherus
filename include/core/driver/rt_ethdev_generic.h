@@ -116,7 +116,6 @@ typedef uint16_t queueid_t;
 #define RSS_TYPES_CHAR_NUM_PER_LINE 64
 #endif // RSS_TYPES_CHAR_NUM_PER_LINE
 
-#ifndef 
 #define DEF_MBUF_CACHE 250
 
 #endif // _RT_ETHDEV_GENERIC_H
