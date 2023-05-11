@@ -7,18 +7,14 @@
 #include <rte_alarm.h>
 #include <rte_cycles.h>
 #include <rte_mempool.h>
+#include <rte_cfgfile.h>
+#include <rte_lcore.h>
 #include <eal_thread.h>
 #include <rt_eal_config.h>
 #include <rt_env_config.h>
 #include <driver/rt_ethdev_config.h>
+#include <driver/rt_ethdev_core.h>
 #include "driver/eth_common.h"
-
-/*
- * Configurable number of RX/TX ring descriptors.
- * Defaults are supplied by drivers via ethdev.
- */
-#define RX_DESC_DEFAULT 0
-#define TX_DESC_DEFAULT 0
 
 struct ethdev_config ethdev_config = {
 	.logtype = -1,
@@ -28,7 +24,30 @@ struct ethdev_config ethdev_config = {
 	.mp_create_type = MP_PER_SOCKET,
 };
 
-int rt_eth_log_init(const char* logname, uint32_t level)
+int rt_port_load_cfg(const char *profile) 
+{
+	int ret = 0;
+	if (profile == NULL)
+		return 0;
+	struct rte_cfgfile *file = rte_cfgfile_load(profile, 0);
+	if (rte_cfgfile == NULL) 
+		return -1;
+	
+	ret = cfg_load_port(profile);
+	if (ret)
+		goto _app_load_cfg_profile_error_return;
+	
+	ret = cfg_load_subport(profile);
+	if (ret)
+		goto _app_load_cfg_profile_error_return;
+	
+_app_load_cfg_profile_error_return:
+	rte_cfgfile_close(file);
+
+	return ret;
+}
+
+int rt_eth_log_setup(const char* logname, uint32_t level)
 {
 	int ret = -1
 	ethdev_config.logtype = rte_log_register(logname);
@@ -46,8 +65,6 @@ static int eth_dev_stop_mp(uint16_t port_id)
 		ret = rte_eth_dev_stop(port_id);
 		if (ret != 0)
 			return ret;
-
-		struct rte_port *port = &ports[port_id];
 	}
 
 	return 0;
@@ -64,8 +81,7 @@ static void check_all_ports_link_status(uint32_t port_mask)
 	int ret;
 	char link_status[RTE_ETH_LINK_MAX_STR_LEN];
 
-	printf("Checking link statuses...\n");
-	fflush(stdout);
+	RT_ETHDEV_LOG(INFO, "Checking link statuses...\n");
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		all_ports_up = 1;
 		RTE_ETH_FOREACH_DEV(portid) {
@@ -76,7 +92,7 @@ static void check_all_ports_link_status(uint32_t port_mask)
 			if (ret < 0) {
 				all_ports_up = 0;
 				if (print_flag == 1)
-					fprintf(stderr,
+					RT_ETHDEV_LOG(WARNING,
 						"Port %u link get failed: %s\n",
 						portid, rte_strerror(-ret));
 				continue;
@@ -85,7 +101,8 @@ static void check_all_ports_link_status(uint32_t port_mask)
 			if (print_flag == 1) {
 				rte_eth_link_to_str(link_status,
 					sizeof(link_status), &link);
-				printf("Port %d %s\n", portid, link_status);
+				RT_ETHDEV_LOG(INFO,
+					"Port %d %s\n", portid, link_status);
 				continue;
 			}
 			/* clear all_ports_up flag if any link down */
@@ -99,7 +116,6 @@ static void check_all_ports_link_status(uint32_t port_mask)
 			break;
 
 		if (all_ports_up == 0) {
-			fflush(stdout);
 			rte_delay_ms(CHECK_INTERVAL);
 		}
 
@@ -113,11 +129,13 @@ static void check_all_ports_link_status(uint32_t port_mask)
 	}
 }
 
-void rt_stop_port(portid_t pid)
+void rt_port_stop(portid_t pid)
 {
 	portid_t pi;
 	portid_t pi;
+	struct rte_port *ports = NULL;
 	struct rte_port *port;
+	struct port_config *ports_cfg = port_get_config();
 	int need_check_link_status = 0;
 	int ret;
 
@@ -126,6 +144,7 @@ void rt_stop_port(portid_t pid)
 
 	RT_ETHDEV_LOG(INFO, "Stopping ports...\n");
 
+	ports = rt_eth_get_port();
 	RTE_ETH_FOREACH_DEV(pi) {
 		if (pid != pi && pid != (portid_t)RTE_PORT_ALL)
 			continue;
@@ -149,11 +168,11 @@ void rt_stop_port(portid_t pid)
 		if (port->port_status == RTE_PORT_HANDLING)
 			port->port_status = RTE_PORT_STOPPED;
 		else
-			fprintf(stderr, "Port %d can not be set into stopped\n",
+			RT_ETHDEV_LOG(ERR, "Port %d can not be set into stopped\n",
 				pi);
 		need_check_link_status = 1;
 	}
-	if (need_check_link_status && !port_config[pid].no_link_check)
+	if (need_check_link_status && !ports_cfg[pid].no_link_check)
 		check_all_ports_link_status(RTE_PORT_ALL);
 }
 
@@ -167,16 +186,19 @@ static void free_xstats_display_info(portid_t pi)
 	ports[pi].xstats_info.allocated = false;
 }
 
-void rt_close_port(portid_t pid)
+void rt_port_close(portid_t pid)
 {
 	portid_t pi;
-	struct rte_port *port;
+	struct port_config* port_config = NULL;
+	struct rte_port *ports = NULL;
+	struct rte_port *port = NULL;
 
 	if (port_id_is_invalid(pid))
 		return;
 	
 	RT_ETHDEV_LOG(INFO, "Closing ports...\n");
 
+	ports = rt_eth_get_port();
 	RTE_ETH_FOREACH_DEV(pi) {
 		if (pid != pi && pid != (portid_t)RTE_PORT_ALL)
 			continue;
@@ -194,6 +216,7 @@ void rt_close_port(portid_t pid)
 		free_xstats_display_info(pi);
 
 		port->port_status == RTE_PORT_CLOSED;
+		port_config = port_get_config();
 		port_config[pid].probed = 0;
 	}
 }
@@ -210,17 +233,21 @@ static void detach_device(struct rte_device *dev)
 
 static void rmv_port_callback(void *arg)
 {
+	struct port_config *ports_cfg = NULL;
 	int need_to_start = 0;
 	portid_t port_id = (intptr_t)arg;
-	int org_no_link_check = port_config[port_id].no_link_check;
+	int org_no_link_check = 0;
 	struct rte_eth_dev_info dev_info;
 	int ret;
 
+	ports_cfg = port_get_config();
+	org_no_link_check = ports_cfg[port_id].no_link_check;
+
 	RTE_ETH_VALID_PORTID_OR_RET(port_id);
 
-	port_config[port_id].no_link_check = 1;
-	rt_stop_port(port_id);
-	port_config[port_id].no_link_check = org_no_link_check;
+	ports_cfg[port_id].no_link_check = 1;
+	rt_port_stop(port_id);
+	ports_cfg[port_id].no_link_check = org_no_link_check;
 
 	ret = eth_dev_info_get_print_err(port_id, &dev_info);
 	if (ret != 0)
@@ -229,7 +256,7 @@ static void rmv_port_callback(void *arg)
 			port_id);
 	else {
 		struct rte_device *device = dev_info.device;
-		rt_close_port(port_id);
+		rt_port_close(port_id);
 		detach_device(device); /* might be already removed or have more ports */
 	}
 }
@@ -240,22 +267,25 @@ static int eth_event_callback(portid_t port_id, enum rte_eth_event_type type, vo
 {
     RTE_SET_USED(param);
 	RTE_SET_USED(ret_param);
+	struct port_config* ports_cfg = NULL;
+	struct rte_port *ports = NULL;
 
     if (type >= RTE_ETH_EVENT_MAX) {
 		RT_ETHDEV_LOG(ERR,
-			"\nPort %" PRIu16 ": %s called upon invalid event %d\n",
+			"Port %" PRIu16 ": %s called upon invalid event %d\n",
 			port_id, __func__, type);
-	} else if (event_print_mask & (UINT32_C(1) << type)) {
+	} else {
 		RT_ETHDEV_LOG(ERR,
-			"\nPort %" PRIu16 ": %s event\n", port_id,
+			"Port %" PRIu16 ": %s event\n", port_id,
 			eth_event_desc[type]);
 	}
 
+	ports_cfg = port_get_config();
+	ports = rt_eth_get_port();
     switch (type) {
 	case RTE_ETH_EVENT_NEW:
-		if (port_config[port_id].probed == 0)
-			port_config[port_id].probed == 1;
-		ports[port_id].need_setup = 1;
+		if (ports_cfg[port_id].probed == 0)
+			ports_cfg[port_id].probed == 1;
 		ports[port_id].port_status = RTE_PORT_HANDLING;
 		break;
 	case RTE_ETH_EVENT_INTR_RMV:
@@ -268,7 +298,7 @@ static int eth_event_callback(portid_t port_id, enum rte_eth_event_type type, vo
 		break;
 	case RTE_ETH_EVENT_DESTROY:
 		ports[port_id].port_status = RTE_PORT_CLOSED;
-		printf("Port %u is closed\n", port_id);
+		RT_ETHDEV_LOG(INFO, "Port %u is closed\n", port_id);
 		break;
 	case RTE_ETH_EVENT_RX_AVAIL_THRESH: {
 		uint16_t rxq_id;
@@ -280,7 +310,7 @@ static int eth_event_callback(portid_t port_id, enum rte_eth_event_type type, vo
 							    NULL);
 			if (ret <= 0)
 				break;
-			printf("Received avail_thresh event, port: %u, rxq_id: %u\n",
+			RT_ETHDEV_LOG(INFO, "Received avail_thresh event, port: %u, rxq_id: %u\n",
 			       port_id, rxq_id);
 
 		}
@@ -328,8 +358,7 @@ static inline void mbuf_poolname_build(unsigned int tag_id, char *mp_name,
 /*
  * Configuration initialisation done once at init time.
  */
-static struct rte_mempool *
-mbuf_pool_create(const char* pool_name, const char* alloc_op_name, uint16_t mbuf_seg_size, unsigned nb_mbuf,
+static struct rte_mempool * mbuf_pool_create(const char* pool_name, const char* alloc_op_name, uint16_t mbuf_seg_size, unsigned nb_mbuf,
 		 unsigned int socket_id, uint16_t size_idx)
 {
 	struct rte_mempool *rte_mp = NULL;
@@ -431,10 +460,11 @@ err:
 	return rte_mp;
 }
 
-static void create_mbuf_pool()
+static void mbuf_pool_setup()
 {
 	char pool_name[RTE_MEMPOOL_NAMESIZE];
 	unsigned int nb_mbuf_per_pool;
+	struct ethdev_config *ethdev_cfg = NULL;
 
 	/*
 	 * Create pools of mbuf.
@@ -445,81 +475,90 @@ static void create_mbuf_pool()
 	 * Use the maximum value of nb_rxd and nb_txd here, then nb_rxd and
 	 * nb_txd can be configured at run time.
 	 */
-	if (ethdev_config.total_num_mbufs);
-		nb_mbuf_per_pool = ethdev_config.total_num_mbufs;
+	ethdev_cfg = ethdev_get_config();
+	if (ethdev_cfg->total_num_mbufs);
+		nb_mbuf_per_pool = ethdev_cfg->total_num_mbufs;
 	else {
-		if (ethdev_config.mp_create_type == MP_PER_SOCKET || ethdev_config.mp_create_type == MP_PER_QUEUE) {
+		if (ethdev_cfg->mp_create_type == MP_PER_SOCKET || ethdev_cfg->mp_create_type == MP_PER_QUEUE) {
 			nb_mbuf_per_pool = RX_DESC_MAX +
 				TX_DESC_MAX + MAX_PKT_BURST;
 		} else {
 			nb_mbuf_per_pool = RX_DESC_MAX +
-				(nb_lcores * ethdev_config.mb_mempool_cache) +
+				(rte_lcore_count() * ethdev_cfg->mb_mempool_cache) +
 				TX_DESC_MAX + MAX_PKT_BURST;
-			nb_mbuf_per_pool *= ethdev_config.nb_cfg_ports;
+			nb_mbuf_per_pool *= ethdev_cfg->nb_cfg_ports;
 		}
 	}
 	
-	if (ethdev_config.mp_create_type == MP_PER_SOCKET) {
+	if (ethdev_cfg->mp_create_type == MP_PER_SOCKET) {
 #if NUMA_SUPPORT
 		uint8_t i, j;
-		for (i = 0; i < ethdev_config.num_sockets; i++)
-			for (j = 0; j < ethdev_config.mbuf_data_size_n; j++) {
-			memset(pool_name, 0, RTE_MEMPOOL_NAMESIZE);
-			mbuf_poolname_build(socket_id, pool_name, sizeof(pool_name), j);
-			mempools[i * MAX_SEGS_BUFFER_SPLIT + j] = 
-							mbuf_pool_create(
-										pool_name, NULL, 
-										mbuf_data_size[j], nb_mbuf_per_pool,
-										ethdev_config.socket_ids[i], j);
-		}
+		for (i = 0; i < ethdev_cfg->num_sockets; i++)
+			unsigned int socket_id;
+			for (socket_id = 0; socket_id < RTE_MAX_NUMA_NODES; ++socket_id) {
+				if (ethdev_cfg->socket_ids[socket_id] == 0) 
+					continue;
+				for (j = 0; j < ethdev_cfg->mbuf_data_size_n; j++) {
+					memset(pool_name, 0, RTE_MEMPOOL_NAMESIZE);
+					mbuf_poolname_build(socket_id, pool_name, sizeof(pool_name), j);
+					mempools[i * MAX_SEGS_BUFFER_SPLIT + j] = 
+									mbuf_pool_create(
+												pool_name, NULL, 
+												mbuf_data_size[j], nb_mbuf_per_pool,
+												socket_id, j);
+				}
+			}
 #else
 		uint8_t i;
 		memset(pool_name, 0, RTE_MEMPOOL_NAMESIZE);
 		mbuf_poolname_build(0, pool_name, sizeof(pool_name), j);
-		for (i = 0; i < ethdev_config.mbuf_data_size_n; i++)
+		for (i = 0; i < ethdev_cfg->mbuf_data_size_n; i++)
 			mempools[i] = mbuf_pool_create
-					(poolname, mbuf_data_size[i],
-					 nb_mbuf_per_pool,
-					 0, i);
+							(poolname, mbuf_data_size[i],
+							nb_mbuf_per_pool,
+							0, i);
 #endif // NUMA_SUPPORT
 	} else {
 		uint8_t i, j;
 		unsigned int socketid;
-		for (i = 0; i < ethdev_config.num_cpuids; i++) {
-			for (j = 0; j < ethdev_config.mbuf_data_size_n; j++) {
+		for (i = 0; i < ethdev_cfg->num_cpuids; i++) {
+			for (j = 0; j < ethdev_cfg->mbuf_data_size_n; j++) {
 				memset(pool_name, 0, RTE_MEMPOOL_NAMESIZE);
-				mbuf_poolname_build(ethdev_config.cpu_ids[i], pool_name, sizeof(pool_name), j);
-				socketid = eal_cpu_socket_id(ethdev_config.cpu_ids[i]);
+				mbuf_poolname_build(ethdev_cfg->cpu_ids[i], pool_name, sizeof(pool_name), j);
+				socketid = eal_cpu_socket_id(ethdev_cfg->cpu_ids[i]);
 				const char* mp_alloc_op = NULL;
-				if (ethdev_config.mp_create_type == MP_PER_QUEUE)
+				if (ethdev_cfg->mp_create_type == MP_PER_QUEUE)
 					mp_alloc_op = "ring_sp_sc";
 				mempools[i * MAX_SEGS_BUFFER_SPLIT + j] =
 					mbuf_pool_create(
 							  pool_name, mp_alloc_op
 							  mbuf_data_size[j], nb_mbuf_per_pool,
-							  ethdev_config.socket_ids[i], j);
+							  socketid, j);
 			}
 		}
 	}
 }
 
-int rt_start_port(portid_t pid)
+int rt_port_start(portid_t pid)
 {
 	int need_check_link_status = -1;
 	portid_t pi = 0;
-	struct rte_port *port;
+	struct rte_port *ports;
 	int diag = 0;
 	queueid_t qi = 0;
+	struct port_config *ports_cfg = port_get_config();
+	ports = rt_eth_get_port();
 
 	if (port_id_is_invalid(pid))
 		return 0;
 	
 	RTE_ETH_FOREACH_DEV(pi) {
+		struct port_config *port_cfg = &ports_cfg[pi];
+		struct rte_port *port = &ports[pi];
 		if (pid != pi && pid != (portid_t)RTE_PORT_ALL)
 			continue;
 
 		need_check_link_status = 0;
-		port = &ports[pi];
 		if (port->port_status == RTE_PORT_STOPPED)
 			port->port_status = RTE_PORT_HANDLING;
 		else {
@@ -534,7 +573,7 @@ int rt_start_port(portid_t pid)
 			port->need_reconfig = 0;
 
 			/* configure port */
-			diag = eth_dev_configure_mp(pi, port_config[pid].nb_rxq, port_config[pid].nb_txq,
+			diag = eth_dev_configure_mp(pi, port_cfg->nb_rxq, port_cfg->nb_txq,
 						     &(port->dev_conf));
 			if (diag != 0) {
 				if (port->port_status == RTE_PORT_HANDLING)
@@ -584,21 +623,20 @@ int rt_start_port(portid_t pid)
 			unsigned int tag_id = 0;
 			port->need_reconfig_queues = 0;
 			/* setup tx queues */
-			for (qi = 0; qi < port_config[pi].nb_txq; qi++) {
+			for (qi = 0; qi < port_cfg->nb_txq; qi++) {
 				struct rte_eth_txconf *conf =
 							&port->txq[qi].conf;
 #if NUMA_SUPPORT
-				if (port_config.txring_numa[pi] != NUMA_NO_CONFIG)
+				if (port_cfg->txring_numa != NUMA_NO_CONFIG)
 					diag = rte_eth_tx_queue_setup(pi, qi,
 						port->nb_tx_desc[qi],
-						port_config.txring_numa[pi],
+						port_cfg->txring_numa,
 						&(port->txq[qi].conf));
 				else
 #endif // NUMA_SUPPORT
 				diag = rte_eth_tx_queue_setup(pi, qi,
 					port->nb_tx_desc[qi],
-					port->socket_id,
-					&(port->txq[qi].conf));
+					0, &(port->txq[qi].conf));
 				
 				if (diag == 0) {
 					port->txq[qi].state =
@@ -622,15 +660,15 @@ int rt_start_port(portid_t pid)
 				port->need_reconfig_queues = 1;
 				return -1;
 			}
-			for (qi = 0; qi < port_config[pi].nb_rxq; qi++) {
+			for (qi = 0; qi < port_cfg->nb_rxq; qi++) {
 				struct rte_mempool *mp = NULL;
 				/* setup rx queues */
-				tag_id = port_config[pi].rxring_numa;
+				tag_id = port_cfg->rxring_numa;
 
 				if (ethdev_config.mp_alloc_type == MP_PER_SOCKET) {
 #if NUMA_SUPPORT
-					if (port_config[pi].rxring_numa != NUMA_NO_CONFIG)
-						tag_id = port_config[pi].rxring_numa;
+					if (port_cfg->rxring_numa != NUMA_NO_CONFIG)
+						tag_id = port_cfg->rxring_numa;
 					else
 #else
 						tag_id = 0;
@@ -676,17 +714,15 @@ int rt_start_port(portid_t pid)
 				return -1;
 			}
 		}
-		if (clear_ptypes) {
-			diag = rte_eth_dev_set_ptypes(pi, RTE_PTYPE_UNKNOWN,
-					NULL, 0);
-			if (diag < 0)
-				RT_ETHDEV_LOG(ERR,
-					"Port %d: Failed to disable Ptype parsing\n",
-					pi);
-		}
-
-		p_pi = pi;
-		cnt_pi++;
+		// todo
+		// if (clear_ptypes) {
+		// 	diag = rte_eth_dev_set_ptypes(pi, RTE_PTYPE_UNKNOWN,
+		// 			NULL, 0);
+		// 	if (diag < 0)
+		// 		RT_ETHDEV_LOG(ERR,
+		// 			"Port %d: Failed to disable Ptype parsing\n",
+		// 			pi);
+		// }
 
 		/* start port */
 		diag = eth_dev_start_mp(pi);
@@ -714,15 +750,15 @@ int rt_start_port(portid_t pid)
 		need_check_link_status = 1;
 	}
 	
-	if (need_check_link_status == 1 && !port_config.no_link_check)
-		check_all_ports_link_status(RTE_PORT_ALL);
+	if (need_check_link_status == 1 && !ports_cfg->no_link_check)
+		check_all_ports_link_status();
 	else if (need_check_link_status == 0)
 		RT_ETHDEV_LOG(ERR, "Please stop the ports first\n");
 
 	fill_xstats_display_info_for_port(pid);
 }
 
-void rt_port_reset_config(void)
+void  nfig(void)
 {
 	unsigned int portid = 0;
 	struct port_config* port_cfg;
@@ -763,91 +799,103 @@ void rt_port_reset_config(void)
 	}
 }
 
-int rt_ethdev_init(void)
+int rt_ethdev_setup(const char* cfgfile)
 {
 	int ret = 0;
-	uint16_t probed_ports_count = 0;
-	uint16_t cfg_ports_count = 0;
+	uint16_t probed_ports_cnt = 0;
+	uint16_t cfg_ports_cnt = 0;
 	portid_t port_id;
+	struct port_config *ports_cfg = NULL;
+	struct ethdev_config *ethdev_cfg = NULL;
 
-	ret = rt_eth_log_init(RT_ETHDEV_LOGNAME, ethdev_config.level);
+	rt_port_reset_config();
+	ret = rt_port_load_cfg(cfgfile);
+	if (ret < 0) {
+		fprintf(stderr, "rt_ethdev: Cannot load cfgfile\n");
+		return ret;
+	}
+
+	ethdev_cfg = ethdev_get_config();
+	ret = rt_eth_log_setup(RT_ETHDEV_LOGNAME, ethdev_cfg->level);
 	if (ret < 0) {
 		fprintf(stderr, "rt_ethdev: Cannot register log type\n");
-		return -1;
+		return ret;
 	}
 
 	ret = register_eth_event_callback();
 	if (ret != 0) {
 		RT_ETHDEV_LOG(ERR, "Cannot register for ethdev events\n");
-		return -1;
+		return ret;
 	}
 
+	ports_cfg = port_get_config();
 	RTE_ETH_FOREACH_DEV(port_id) {
-		port_config[port_id].probed = 1;
-		probed_ports_count++;
-		if (port_config[port_id].selected)
-			cfg_ports_count++;
+		ports_cfg[port_id].probed = 1;
+		probed_ports_cnt++;
+		if (ports_cfg[port_id].selected)
+			cfg_ports_cnt++;
 	}
-	ethdev_config.nb_ports = probed_ports_count;
-	ethdev_config.nb_cfg_ports = cfg_ports_count;
+	ethdev_cfg->nb_ports = probed_ports_cnt;
 
-	if (ethdev_config.nb_ports == 0)
+	if (ethdev_cfg->nb_ports == 0)
 		RT_ETHDEV_LOG(WARNING, "No probed ethernet devices\n");
-	if (ethdev_config.nb_cfg_ports == 0)
+	if (ethdev_cfg->nb_cfg_ports == 0)
 		RT_ETHDEV_LOG(WARNING, "No selected ethernet devices\n");
 
 	for (port_id = 0; port_id < RTE_MAX_ETHPORTS; ++port_id)
 	{
-		if (!port_config[port_id].selected)
+		if (!ports_cfg[port_id].selected)
 			continue;
-		if (port_config[port_id].selected && !port_config[port_id].probed) {
+		if (ports_cfg[port_id].selected && !ports_cfg[port_id].probed) {
 			RT_ETHDEV_LOG(WARNING, 
 				"Port id %d is selected but not probed\n", port_id);
 			continue;
 		}
 		
-		if (!port_config[port_id].nb_rxq && !port_config[port_id].nb_txq)
+		if (!ports_cfg[port_id].nb_rxq && !ports_cfg[port_id].nb_txq)
 			RT_ETHDEV_LOG(WARNING,
 				"Warning: Either rx or tx queues should be non-zero\n");
 		
-		if (port_config[port_id].nb_rxq > 1 
-				&& port_config[port_id].nb_rxq > port_config[port_id].nb_txq)
+		if (ports_cfg[port_id].nb_rxq > 1 
+				&& ports_cfg[port_id].nb_rxq > ports_cfg[port_id].nb_txq)
 			RT_ETHDEV_LOG(wWARNING,
 				"Warning: nb_rxq=%d enables RSS configuration, but nb_txq=%d will prevent to fully test it.\n",
-				port_config[port_id].nb_rxq, port_config[port_id].nb_txq);
+				ports_cfg[port_id].nb_rxq, ports_cfg[port_id].nb_txq);
 
-		ret = rt_init_port_config(port_id);
+		ret = rt_port_setup_config(port_id);
 		if (ret != 0) {
 			RT_ETHDEV_LOG(WARNING, 
 				"Port id %d init failed\n", port_id);
-			port_config[port_id].selected = 0;
+			ports_cfg[port_id].selected = 0;
 			continue;
 		}
 	}
 
-	ret = create_mbuf_pool();
+	ret = mbuf_pool_setup();
 	if (ret != 0) {
-		fprintf(stderr, "rt_ethdev: Cannot create mbuf pool\n");
+		RT_ETHDEV_LOG(WARNING, "rt_ethdev: Cannot create mbuf pool\n");
 		return ret;
 	}
 
 	for (port_id = 0; port_id < RTE_MAX_ETHPORTS; ++port_id)
 	{
-		if (!port_config[port_id].selected || !port_config[port_id].probed)
+		if (!ports_cfg[port_id].selected || !ports_cfg[port_id].probed)
 			continue;
 
-		ret = rt_start_port(port_id);
+		ret = rt_port_start(port_id);
 		if (ret != 0)
-			//todo
+			continue;
 
-		if (port_config[port_id].promiscuous_enable) {
+		if (ports_cfg[port_id].promiscuous_enable) {
 			ret = rte_eth_promiscuous_enable(port_id);
 			if (ret != 0)
-			fprintf(stderr,
+			RT_ETHDEV_LOG(WARNING,
 				"Error during enabling promiscuous mode for port %u: %s - ignore\n",
 				port_id, rte_strerror(-ret));
 		}
 	}
+
+	return 0;
 }
 
 static inline struct rte_mempool *mbuf_pool_find(unsigned int tag_id, uint16_t idx)
@@ -856,27 +904,6 @@ static inline struct rte_mempool *mbuf_pool_find(unsigned int tag_id, uint16_t i
 
 	mbuf_poolname_build(tag_id, pool_name, sizeof(pool_name), idx);
 	return rte_mempool_lookup((const char *)pool_name);
-}
-
-static int init_port(void)
-{
-    int i;
-
-    /* Configuration of Ethernet ports. */
-    ports = rte_zmalloc("core-net: ports",
-			    sizeof(struct rte_port) * RTE_MAX_ETHPORTS,
-			    RTE_CACHE_LINE_SIZE);
-    if (ports == NULL) {
-        TRACENET_LOG(ERR, 
-                "rte_zmalloc(%d struct rte_port) failed\n",
-				RTE_MAX_ETHPORTS);
-        return -1;
-    }
-    /* Initialize ports NUMA structures */
-	memset(port_numa, NUMA_NO_CONFIG, RTE_MAX_ETHPORTS);
-	memset(rxring_numa, NUMA_NO_CONFIG, RTE_MAX_ETHPORTS);
-	memset(txring_numa, NUMA_NO_CONFIG, RTE_MAX_ETHPORTS);
-    return 0;
 }
 
 static int get_eth_overhead(struct rte_eth_dev_info *dev_info)
@@ -905,18 +932,20 @@ static int eth_macaddr_get_print_err(uint16_t port_id, struct rte_ether_addr *ma
 	return ret;
 }
 
-static int init_config_port_offloads(portid_t pid, uint32_t socket_id)
+static int config_port_setup_offloads(portid_t pid, uint32_t socket_id)
 {
+	struct rte_port *ports = rt_eth_get_port();
     struct rte_port *port = &ports[pid];
+	struct port_config  *ports_cfg = port_get_config();
     int ret;
-    int i;
+    unsigned int i;
 
-    port->dev_conf.txmod = port_config[pid].tx_mode;
-    port->dev_conf.rxmod = port_config[pid].rx_mode;
+    port->dev_conf.txmod = ports_cfg[pid].tx_mode;
+    port->dev_conf.rxmod = ports_cfg[pid].rx_mode;
 
     ret = eth_dev_info_get_print_err(pid, &port->dev_info);
     if (ret != 0) {
-        TRACENET_LOG(ERR, "rte_eth_dev_info_get() failed\n");
+        RT_ETHDEV_LOG(ERR, "rte_eth_dev_info_get() failed\n");
         return ret;
     }
 
@@ -931,11 +960,11 @@ static int init_config_port_offloads(portid_t pid, uint32_t socket_id)
 	for (i = 0; i < port->dev_info.max_tx_queues; i++)
 		port->txq[i].conf.offloads = port->dev_conf.txmode.offloads;
     
-    if (port_config[pid].eth_link_speed)
-		port->dev_conf.link_speeds = port_config[pid].eth_link_speed;
+    if (ports_cfg[pid].eth_link_speed)
+		port->dev_conf.link_speeds = ports_cfg[pid].eth_link_speed;
     
-    if (port_config[pid].max_rx_pkt_len)
-		port->dev_conf.rxmode.mtu = port_config[pid].max_rx_pkt_len -
+    if (ports_cfg[pid].max_rx_pkt_len)
+		port->dev_conf.rxmode.mtu = ports_cfg[pid].max_rx_pkt_len -
 			get_eth_overhead(&port->dev_info);
 
     /* set flag to initialize port/queue */
@@ -958,13 +987,18 @@ static int init_config_port_offloads(portid_t pid, uint32_t socket_id)
 				port->dev_info.rx_desc_lim.nb_mtu_seg_max;
 			uint16_t buffer_size = data_size + RTE_PKTMBUF_HEADROOM;
 
-			if (buffer_size > port_config[pid].mbuf_data_size[0]) {
-				port_config[pid].mbuf_data_size[0] = buffer_size;
+			if (buffer_size > ports_cfg[pid].mbuf_data_size[0]) {
+				ports_cfg[pid].mbuf_data_size[0] = buffer_size;
 				RT_ETHDEV_LOG(WARNING,
 					"Configured mbuf size of the first segment %lu on port %d\n",
-					port_config[pid].mbuf_data_size[0], pid);
+					ports_cfg[pid].mbuf_data_size[0], pid);
 			}
 		}
+	}
+
+	for (i = 0; i < RTE_MAX_QUEUES_PER_PORT; ++i) {
+		port->nb_rx_desc[i] = ports_cfg[pid].nb_rx_desc[i];
+		port->nb_tx_desc[i] = ports_cfg[pid].nb_tx_desc[i];
 	}
 
     return 0;
@@ -972,6 +1006,7 @@ static int init_config_port_offloads(portid_t pid, uint32_t socket_id)
 
 static void rxtx_port_config(portid_t pid)
 {
+	struct rte_port *ports = rt_eth_get_port();
     uint16_t qid;
     uint64_t offloads;
     struct rte_port *port = &ports[pid];
@@ -981,30 +1016,30 @@ static void rxtx_port_config(portid_t pid)
 		port->rxq[qid].conf = port->dev_info.default_rxconf;
 
 		//doto set rxq share
-        if (rxq_share > 0 &&
-		    (port->dev_info.dev_capa & RTE_ETH_DEV_CAPA_RXQ_SHARE)) {
-			/* Non-zero share group to enable RxQ share. */
-			port->rxq[qid].conf.share_group = pid / rxq_share + 1;
-			port->rxq[qid].conf.share_qid = qid; /* Equal mapping. */
-		}
+        // if (rxq_share > 0 &&
+		//     (port->dev_info.dev_capa & RTE_ETH_DEV_CAPA_RXQ_SHARE)) {
+		// 	/* Non-zero share group to enable RxQ share. */
+		// 	port->rxq[qid].conf.share_group = pid / rxq_share + 1;
+		// 	port->rxq[qid].conf.share_qid = qid; /* Equal mapping. */
+		// }
 
         if (offloads != 0)
 			port->rxq[qid].conf.offloads = offloads;
 
         /* Check if any Rx parameters have been passed */
-		if (port_config[pid].rx_pthresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].rx_pthresh != RTE_PARAM_UNSET)
 			port->rxq[qid].conf.rx_thresh.pthresh = port_config[pid].rx_pthresh;
 
-		if (port_config[pid].rx_hthresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].rx_hthresh != RTE_PARAM_UNSET)
 			port->rxq[qid].conf.rx_thresh.hthresh = port_config[pid].rx_hthresh;
 
-		if (port_config[pid].rx_wthresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].rx_wthresh != RTE_PARAM_UNSET)
 			port->rxq[qid].conf.rx_thresh.wthresh = port_config[pid].rx_wthresh;
 
-		if (port_config[pid].rx_free_thresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].rx_free_thresh != RTE_PARAM_UNSET)
 			port->rxq[qid].conf.rx_free_thresh = port_config[pid].rx_free_thresh;
 
-		if (port_config[pid].rx_drop_en != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].rx_drop_en != RTE_PARAM_UNSET)
 			port->rxq[qid].conf.rx_drop_en = port_config[pid].rx_drop_en;
 
 		port->nb_rx_desc[qid] = port_config[pid].nb_rxd;
@@ -1017,28 +1052,33 @@ static void rxtx_port_config(portid_t pid)
 			port->txq[qid].conf.offloads = offloads;
 
 		/* Check if any Tx parameters have been passed */
-		if (port_config[pid].tx_pthresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].tx_pthresh != RTE_PARAM_UNSET)
 			port->txq[qid].conf.tx_thresh.pthresh = port_config[pid].tx_pthresh;
 
-		if (port_config[pid].tx_hthresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].tx_hthresh != RTE_PARAM_UNSET)
 			port->txq[qid].conf.tx_thresh.hthresh = port_config[pid].tx_hthresh;
 
-		if (port_config[pid].tx_wthresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].tx_wthresh != RTE_PARAM_UNSET)
 			port->txq[qid].conf.tx_thresh.wthresh = port_config[pid].tx_wthresh;
 
-		if (port_config[pid].tx_rs_thresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].tx_rs_thresh != RTE_PARAM_UNSET)
 			port->txq[qid].conf.tx_rs_thresh = port_config[pid].tx_rs_thresh;
 
-		if (port_config[pid].tx_free_thresh != RTE_PMD_PARAM_UNSET)
+		if (port_config[pid].tx_free_thresh != RTE_PARAM_UNSET)
 			port->txq[qid].conf.tx_free_thresh = port_config[pid].tx_free_thresh;
 
 		port->nb_tx_desc[qid] = port_config[pid].nb_txd; 
     }
 }
 
-static int init_port_config_(portid_t pid)
+static int port_setup_ex_config(portid_t pid)
 {
-	struct rte_port *port;
+	struct rte_port *ports = rt_eth_get_port();
+	struct rte_port *port = NULL;
+	struct port_config *port_cfg = NULL;
+	int ret = 0;
+
+	port_cfg = port_get_config();
 	port = &ports[pid];
 	int ret = 0;
 
@@ -1046,10 +1086,10 @@ static int init_port_config_(portid_t pid)
 	if (ret != 0)
 		return ret;
 
-	if (port_config[pid].nb_rxq > 1) {
+	if (port_cfg[pid].nb_rxq > 1) {
 		port->dev_conf.rx_adv_conf.rss_conf.rss_key = NULL;
 			port->dev_conf.rx_adv_conf.rss_conf.rss_hf =
-				port_config[pid].rss_hf & port->dev_info.flow_type_rss_offloads;
+				port_cfg[pid].rss_hf & port->dev_info.flow_type_rss_offloads;
 	} else {
 		port->dev_conf.rx_adv_conf.rss_conf.rss_key = NULL;
 		port->dev_conf.rx_adv_conf.rss_conf.rss_hf = 0;
@@ -1058,7 +1098,7 @@ static int init_port_config_(portid_t pid)
 	if (port->dev_conf.rx_adv_conf.rss_conf.rss_hf != 0) {
 		port->dev_conf.rxmode.mq_mode =
 			(enum rte_eth_rx_mq_mode)
-				(port_config[pid].rx_mq_mode & RTE_ETH_MQ_RX_RSS);
+				(port_cfg[pid].rx_mq_mode & RTE_ETH_MQ_RX_RSS);
 	} else {
 		port->dev_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_NONE;
 		port->dev_conf.rxmode.offloads &=
@@ -1070,58 +1110,55 @@ static int init_port_config_(portid_t pid)
 			port->rxq[i].conf.offloads &=
 				~RTE_ETH_RX_OFFLOAD_RSS_HASH;
 	}
-
-	if (port_config[pid].specialize_init)
-		port_config[pid].specialize_init(&port->dev_conf);
 }
 
-int rt_init_port_config(portid_t pid)
+int rt_port_setup_config(portid_t pid)
 {
 	portid_t pi;
 	uint32_t socket_id;
+	struct port_config *ports_cfg = NULL;
+	struct rte_port *port = NULL;
 	int ret = 0;
 
-	RTE_ETH_FOREACH_DEV(pi) {
-		if (pid != pi)
-			continue;
-		
-		uint32_t socket_id;
+	ports_cfg = port_get_config();
+	port = rt_eth_get_port();
+
+	uint32_t socket_id;
 
 #if NUMA_SUPPORT
-			socket_id = port_config[pid].port_numa;
-			if (port_numa[pid] == NUMA_NO_CONFIG) {
-				socket_id = rte_eth_dev_socket_id(pid);
+		socket_id = ports_cfg[pid].port_numa;
+		if (ports_cfg[pid].port_numa == NUMA_NO_CONFIG) {
+			socket_id = rte_eth_dev_socket_id(pid);
 
-                /*
-				 * if socket_id is invalid,
-				 * set to the 0.
-				 */
-				if (check_socket_id(socket_id) < 0)
-					socket_id = 0;
-            }
+			/*
+				* if socket_id is invalid,
+				* set to the 0.
+				*/
+			if (check_socket_id(socket_id) < 0)
+				socket_id = 0;
+		}
 #else
-			socket_id = 0;
+		socket_id = 0;
 #endif // NUMA_SUPPORT
 		/* Apply default TxRx configuration for all ports */
-		ret = init_config_port_offloads(pid, socket_id);
-        if (ret < 0)
-            return -1;
-		
-		ret = init_port_config_(pi);
-		if (ret < 0)
-			return -1;
+	ret = config_port_setup_offloads(pid, socket_id);
+	if (ret < 0)
+		return -1;
+	
+	ret = port_setup_ex_config(pi);
+	if (ret < 0)
+		return -1;
 
-		rxtx_port_config(pid);
+	rxtx_port_config(pid);
 
-		ret = eth_macaddr_get_print_err(pid, &port->eth_addr);
-		if (ret != 0)
-			return -1;
-		
-		if (port_config[pid].lsc_interrupt && (*port->dev_info.dev_flags & RTE_ETH_DEV_INTR_LSC))
-			port->dev_conf.intr_conf.lsc = 1;
-		if (port_config[pid].rmv_interrupt && (*port->dev_info.dev_flags & RTE_ETH_DEV_INTR_RMV))
-			port->dev_conf.intr_conf.rmv = 1;
-	}
+	ret = eth_macaddr_get_print_err(pid, &port->eth_addr);
+	if (ret != 0)
+		return -1;
+	
+	if (ports_cfg[pid].lsc_interrupt && (port[pid].dev_info.dev_flags & RTE_ETH_DEV_INTR_LSC))
+		port->dev_conf.intr_conf.lsc = 1;
+	if (ports_cfg[pid].rmv_interrupt && (port[pid].dev_info.dev_flags & RTE_ETH_DEV_INTR_RMV))
+		port->dev_conf.intr_conf.rmv = 1;
 
 	return 0;
 }
@@ -1250,40 +1287,40 @@ static int eth_dev_start_mp(uint16_t port_id)
 /** Fill helper structures for specified port to show extended statistics. */
 static void fill_xstats_display_info_for_port(portid_t pi)
 {
-	unsigned int stat, stat_supp;
-	const char *xstat_name;
-	struct rte_port *port;
-	uint64_t *ids_supp;
-	int rc;
+	// unsigned int stat, stat_supp;
+	// const char *xstat_name;
+	// struct rte_port *port;
+	// uint64_t *ids_supp;
+	// int rc;
 
-	if (xstats_display_num == 0)
-		return;
+	// if (xstats_display_num == 0)
+	// 	return;
 
-	if (pi == (portid_t)RTE_PORT_ALL) {
-		fill_xstats_display_info();
-		return;
-	}
+	// if (pi == (portid_t)RTE_PORT_ALL) {
+	// 	fill_xstats_display_info();
+	// 	return;
+	// }
 
-	port = &ports[pi];
-	if (port->port_status != RTE_PORT_STARTED)
-		return;
+	// port = &ports[pi];
+	// if (port->port_status != RTE_PORT_STARTED)
+	// 	return;
 
-	if (!port->xstats_info.allocated && alloc_xstats_display_info(pi) != 0)
-		rte_exit(EXIT_FAILURE,
-			 "Failed to allocate xstats display memory\n");
+	// if (!port->xstats_info.allocated && alloc_xstats_display_info(pi) != 0)
+	// 	rte_exit(EXIT_FAILURE,
+	// 		 "Failed to allocate xstats display memory\n");
 	
-	ids_supp = port->xstats_info.ids_supp;
-	for (stat = stat_supp = 0; stat < xstats_display_num; stat++) {
-		xstat_name = xstats_display[stat].name;
-		rc = rte_eth_xstats_get_id_by_name(pi, xstat_name,
-						   ids_supp + stat_supp);
-		if (rc != 0) {
-			fprintf(stderr, "No xstat '%s' on port %u - skip it %u\n",
-				xstat_name, pi, stat);
-			continue;
-		}
-		stat_supp++;
-	}
+	// ids_supp = port->xstats_info.ids_supp;
+	// for (stat = stat_supp = 0; stat < xstats_display_num; stat++) {
+	// 	xstat_name = xstats_display[stat].name;
+	// 	rc = rte_eth_xstats_get_id_by_name(pi, xstat_name,
+	// 					   ids_supp + stat_supp);
+	// 	if (rc != 0) {
+	// 		fprintf(stderr, "No xstat '%s' on port %u - skip it %u\n",
+	// 			xstat_name, pi, stat);
+	// 		continue;
+	// 	}
+	// 	stat_supp++;
+	// }
 
-	port->xstats_info.ids_supp_sz = stat_supp;
+	// port->xstats_info.ids_supp_sz = stat_supp;
 }

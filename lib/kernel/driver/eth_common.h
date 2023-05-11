@@ -36,19 +36,14 @@ int eth_dev_info_get_print_err(uint16_t port_id, struct rte_eth_dev_info *dev_in
 
 int check_socket_id(uint32_t socket_id);
 
-/**
- * 
- * //todo
- * @param name 
- * @param mbuf_size 
- * @param nb_mbuf 
- * @param socket_id 
- * @return struct rte_mempool* 
- */
 struct rte_mempool* rt_mktbuf_pool_create(const char* name, 
                         uint8_t mp_alloc_type,
                         unsigned int mempool_cache,
                         uint16_t mbuf_size, unsigned nb_mbuf, 
                         unsigned int socket_id);
+
+int cfg_load_port(struct rte_cfgfile* profile);
+
+int cfg_load_subport(struct rte_cfgfile* profile);
 
 #endif // _RT_ETH_COMMON_H
