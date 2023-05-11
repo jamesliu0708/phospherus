@@ -19,13 +19,11 @@
 #include <rtstd/search.h>
 
 //  We tried many different combinations of
-// flags for both GCC and Intel. The flags that worked best
+// flags for both GCC. The flags that worked best
 // for performance
 #pragma GCC push_options
 #pragma GCC optimize("-fstrict-aliasing -ftree-vectorize \
-    -march=native -mtune=native \
-    -fopt-info-vec-all=gcc optrprt -fopenmp-simd \
-    -O3")
+                    -fopt-info-vec-all=gcc")
 /**
  * @brief Branchless choice of two integers
  * 

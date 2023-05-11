@@ -15,14 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Date: Mon May 8 13:03:15 CST 2023
-#ifndef _APP_DATASTRUCT_H
-#define _APP_DATASTRUCT_H
+// Date: Wed Apr 15 18:47:15 CST 2023
+#ifndef _CPLUSPLUS_TAG_INVOKE_H
+#define _CPLUSPLUS_TAG_INVOKE_H
+#include <type_traits>
+#include "details/tag_invoke.h"
+namespace cplusplus {
 
-#include <stdint.h>
+inline constexpr details::tag_invoke_t tag_invoke{};
 
-using instrref_t = uint64_t;
+template<auto& Tag> 
+using tag_t = std::decay_t<decltype(Tag)>;
 
-using error_t = int;
+template<typename Tag, typename... Args> 
+concept tag_invocable = 
+    std::is_invocable_v<decltype(tag_invoke), Tag, Args...>;
 
-#endif // _APP_DATASTRUCT_H
+template<typename Tag, typename... Args> 
+concept nothrow_tag_invocable = 
+    std::is_nothrow_invocable_v<decltype(tag_invoke), Tag, Args...>; 
+
+template<typename Tag, typename... Args> 
+using tag_invoke_result_t = std::invoke_result_t<decltype(tag_invoke), Tag, Args...>; 
+
+} // cplusplus
+
+#endif // _CPLUSPLUS_TAG_INVOKE_H

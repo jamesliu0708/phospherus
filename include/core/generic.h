@@ -15,14 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Date: Mon May 8 13:03:15 CST 2023
-#ifndef _APP_DATASTRUCT_H
-#define _APP_DATASTRUCT_H
-
+// Date: Wed Apr 15 18:47:15 CST 2023
+#ifndef _CORE_GENERIC_H
+#define _CORE_GENERIC_H
 #include <stdint.h>
 
-using instrref_t = uint64_t;
+typedef uint8_t  lcoreid_t;
 
-using error_t = int;
+#define RTE_CACHE_LINE_SIZE_ROUNDUP(size) \
+	(RTE_CACHE_LINE_SIZE * ((size + RTE_CACHE_LINE_SIZE - 1) / RTE_CACHE_LINE_SIZE))
 
-#endif // _APP_DATASTRUCT_H
+#define NUMA_ENABLE 1
+
+#define NUMA_NO_CONFIG 0xFF
+#define UMA_NO_CONFIG  0xFF
+
+#ifndef NUMA_SUPPORT
+#define NUMA_SUPPORT NUMA_ENABLE
+#endif // NUMA_SUPPORT
+
+#endif // _CORE_GENERIC_H

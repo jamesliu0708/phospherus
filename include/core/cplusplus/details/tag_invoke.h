@@ -15,14 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Date: Mon May 8 13:03:15 CST 2023
-#ifndef _APP_DATASTRUCT_H
-#define _APP_DATASTRUCT_H
-
-#include <stdint.h>
-
-using instrref_t = uint64_t;
-
-using error_t = int;
-
-#endif // _APP_DATASTRUCT_H
+// Date: Wed Apr 15 18:47:15 CST 2023
+#ifndef _TAG_INVOKE_DETAILS_H
+#define _TAG_INVOKE_DETAILS_H
+namespace cplusplus {
+namespace details {
+   void tag_invoke();
+   struct tag_invoke_t 
+   {
+      template<typename Tag, typename... Args>
+      constexpr auto operator() (Tag tag, Args &&... args) const
+         noexcept(noexcept(tag_invoke(static_cast<Tag &&>(tag), static_cast<Args &&>(args)...)))
+         -> decltype(tag_invoke(static_cast<Tag &&>(tag), static_cast<Args &&>(args)...))
+      {
+         return tag_invoke(static_cast<Tag &&>(tag), static_cast<Args &&>(args)...);
+      }
+   };
+} // details
+} // cplusplus
+#endif // _TAG_INVOKE_DETAILS_H

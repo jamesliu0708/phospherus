@@ -15,14 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Date: Mon May 8 13:03:15 CST 2023
-#ifndef _APP_DATASTRUCT_H
-#define _APP_DATASTRUCT_H
+// Date: Wed Apr 15 18:47:15 CST 2023
+#ifndef _CPLPLATE_ANCILLARIES_H
+#define _CPLPLATE_ANCILLARIES_H
+#include <stdarg.h>
+#include <cplplate/compiler.h>
 
-#include <stdint.h>
+#define early_panic(__fmt, __args...)		\
+	__early_panic(__func__, __fmt, ##__args)
 
-using instrref_t = uint64_t;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-using error_t = int;
+void __noreturn __early_panic(const char *fn,
+			      const char *fmt, ...);
 
-#endif // _APP_DATASTRUCT_H
+void __noreturn ___panic(const char *fn,
+			 const char *name,
+			 const char *fmt, va_list ap);
+
+void __noreturn __panic(const char *fn,
+			const char *fmt, ...);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif //_CPLPLATE_ANCILLARIES_H

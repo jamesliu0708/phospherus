@@ -20,8 +20,14 @@
 #define _APP_MD_DATASTRUCT_H
 
 #include <app/datastruct.h>
+#include <x86intrin.h>
 
-namespace phphs {
+union instrument {
+#ifdef __AVX256__
+    __m256i _;
+#endif // __AVX256__
+    char id[32];
+};
 
 struct mdfield {
     instrref_t instr_id;
@@ -30,7 +36,5 @@ struct mdfield {
     int ask_price[5];
     int ask_volume[5];
 };
-
-} // phphs
 
 #endif // _APP_MD_DATASTRUCT_H
