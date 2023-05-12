@@ -19,9 +19,10 @@
 #ifndef _RT_ETH_COMMON_H
 #define _RT_ETH_COMMON_H
 
-#include <driver/ethdev_config.h>
+#include "driver/rt_ethdev_config.h"
 
-#define RT_ETHDEV_LOGNAME   ##rt_ethdev
+struct rte_eth_dev_info;
+struct rte_cfgfile;
 
 #define EXTMEM_HEAP_NAME "extmem"
 
@@ -35,12 +36,6 @@ int port_id_is_invalid(portid_t port_id);
 int eth_dev_info_get_print_err(uint16_t port_id, struct rte_eth_dev_info *dev_info);
 
 int check_socket_id(uint32_t socket_id);
-
-struct rte_mempool* rt_mktbuf_pool_create(const char* name, 
-                        uint8_t mp_alloc_type,
-                        unsigned int mempool_cache,
-                        uint16_t mbuf_size, unsigned nb_mbuf, 
-                        unsigned int socket_id);
 
 int cfg_load_port(struct rte_cfgfile* profile);
 

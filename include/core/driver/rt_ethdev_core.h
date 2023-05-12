@@ -22,8 +22,8 @@
 #include <stdint.h>
 #include <rte_ethdev.h>
 #include <rte_mempool.h>
-#include <ethdev_driver.h>
-#include <rt_ethdev_config.h>
+#include <generic.h>
+#include <driver/rt_ethdev_config.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,6 +54,12 @@ enum {
 	MP_PER_QUEUE,	/**< create mempool per rx/tx queue */
 	MP_PER_CORE,	/**< creaate mempool per core*/
 	MP_PER_SOCKET,	/**< create mempool per socket */
+};
+
+enum {
+	PORT_MODE_NATIVE,	/**< generic mode using dpdk */
+	PORT_MODE_XDP,		/**< recv/send mode using xdp */
+	PORT_MODE_KNI		/**< interactive with kernel using kni */
 };
 
 /**
@@ -104,8 +110,9 @@ struct port_config {
 	portid_t ports_id;
 	int		selected;
 	int		probed;
+	int8_t 	mode;
 
-	const struct rss_type_info rss_type_table[]; /**< An entry with a NULL type name terminates the list. */ 
+	const struct rss_type_info* rss_type_table; /**< An entry with a NULL type name terminates the list. */ 
 	uint64_t rss_hf; /**< Receive Side Scaling (RSS) configuration. */
 	
 	char dynf_names[64][RTE_MBUF_DYN_NAMESIZE]; /**< Array that holds the name for each dynf. */

@@ -263,7 +263,7 @@ static int setup_extmem(uint32_t nb_mbufs, uint32_t mbuf_sz, bool huge)
 
 	ret = create_extmem(nb_mbufs, mbuf_sz, &param, huge);
 	if (ret < 0) {
-		TESTPMD_LOG(ERR, "Cannot create memory area\n");
+		fprintf(stderr, "Cannot create memory area\n");
 		return -1;
 	}
 
@@ -339,100 +339,15 @@ static unsigned int setup_extbuf(uint32_t nb_mbufs, uint16_t mbuf_sz, unsigned i
 	return ext_num;
 }
 
-struct rte_mempool* rt_mktbuf_pool_create(const char* name, 
-                        uint8_t mp_alloc_type, unsigned flags,
-                        unsigned int mempool_cache,
-                        uint16_t mbuf_size, unsigned nb_mbuf, 
-                        unsigned int socket_id)
-{
-	struct rte_mempool *rte_mp = NULL;
-	if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
-		rte_mp = rte_mempool_lookup(name);
-		return rte_mp;
-	}
-
-	switch (mp_alloc_type) {
-	case MP_ALLOC_NATIVE:
-		{
-			rte_mp = rte_pktmbuf_pool_create(name, nb_mbuf,
-				mempool_cache, 0, mbuf_size, socket_id);
-			break;
-		}
-	case MP_ALLOC_ANON:
-		{
-			rte_mp = rte_mempool_create_empty(name, nb_mbuf,
-				mbuf_size, (unsigned int) mempool_cache,
-				sizeof(struct rte_pktmbuf_pool_private),
-				socket_id, flags);
-			if (rte_mp == NULL)
-				goto out;
-			
-			if (rte_mempool_populate_anon(rte_mp) == 0) {
-				rte_mempool_free(rte_mp);
-				rte_mp = NULL;
-				goto out;
-			}
-			
-			rte_pktmbuf_pool_init(rte_mp, NULL);
-			rte_mempool_obj_iter(rte_mp, rte_pktmbuf_init, NULL);
-			break;
-		}
-	case MP_ALLOC_XMEM:
-	case MP_ALLOC_XMEM_HUGE:
-		{
-			int heap_socket;
-			bool huge = mp_alloc_type == MP_ALLOC_XMEM_HUGE;
-
-			if (setup_extmem(nb_mbuf, mbuf_seg_size, huge) < 0)
-				//todo
-				return -1;
-			
-			heap_socket = 
-				rte_malloc_heap_get_socket(EXTMEM_HEAP_NAME);
-			if (heap_socket < 0)
-				//todo
-				return -1;
-			
-			rte_mp = rte_pktmbuf_pool_create(name, nb_mbuf,
-					mempool_cache, 0, mbuf_size,
-					heap_socket);
-			break;
-		}
-	case MP_ALLOC_XBUF:
-		{
-			struct rte_pktmbuf_extmem* ext_mem;
-			unsigned int ext_num;
-
-			ext_num = setup_extbuf(nb_mbuf,	mbuf_seg_size,
-					       socket_id, pool_name, &ext_mem);
-			if (ext_num == 0)
-				//todo
-				return -1;
-			
-			rte_mp = rte_pktmbuf_pool_create_extbuf
-					(pool_name, nb_mbuf, mb_mempool_cache,
-					 0, mbuf_seg_size, socket_id,
-					 ext_mem, ext_num);
-			free(ext_mem);
-			break;
-		}
-	default:
-		{
-			//todo
-		}
-	}
-out:
-	return rte_mp;
-}
-
 #define SET_OPTIONAL_INT_CFG(target, cfg, entry, sec_name, entryname, type) do {	\
 	entry = rte_cfgfile_get_entry(cfg, sec_name, #entryname);	\
-	if (entry)
-		target = (type)atoi(entry);
-}
+	if (entry)	\
+		target = (type)atoi(entry);	\
+} while (0)
 
 int cfg_load_port(struct rte_cfgfile* cfg)
 {
+	int ret = 0;
 	struct ethdev_config *ethdev_cfg = ethdev_get_config();
 	const char *entry;
 	const char *sec_name = "ethdev";
@@ -558,7 +473,7 @@ int cfg_load_port(struct rte_cfgfile* cfg)
 
 static void port_parse_rx_offloads(struct rte_cfgfile * cfg, const char* sec_name, uint64_t *offloads)
 {
-	char *entry = NULL;
+	const char *entry = NULL;
 
 	entry = rte_cfgfile_get_entry(cfg, sec_name, "rx_offloads");
 	if (entry) {
@@ -606,13 +521,13 @@ static void port_parse_rx_offloads(struct rte_cfgfile * cfg, const char* sec_nam
 			else if (strcmp(offloads_str, "buffer_split") == 0)
 				*offloads |= RTE_ETH_RX_OFFLOAD_BUFFER_SPLIT;
 			entry = end + 1;
-		}
+		} while (true);
 	}
 }
 
 static void port_parse_tx_offloads(struct rte_cfgfile * cfg, const char* sec_name, uint64_t *offloads)
 {
-	char *entry = NULL;
+	const char *entry = NULL;
 
 	entry = rte_cfgfile_get_entry(cfg, sec_name, "rx_offloads");
 	if (entry) {
@@ -668,11 +583,10 @@ static void port_parse_tx_offloads(struct rte_cfgfile * cfg, const char* sec_nam
 			else if (strcmp(offloads_str, "timstamp") == 0)
 				*offloads |= RTE_ETH_TX_OFFLOAD_SEND_ON_TIMESTAMP;
 			entry = end + 1;
-		}
+		} while (true);
 	}
 }
 
-#define CFG_NAME_LEN 100
 int cfg_load_subport(struct rte_cfgfile * cfg)
 {
 	unsigned int i = 0;
@@ -680,7 +594,7 @@ int cfg_load_subport(struct rte_cfgfile * cfg)
 
 	for (i = 0; i < RTE_MAX_ETHPORTS; ++i) {
 		char sec_name[CFG_NAME_LEN];
-		char *entry = NULL;
+		const char *entry = NULL;
 		unsigned int rx_desc_cnt = 0, tx_desc_cnt = 0;
 		char *next = NULL;
 		snprintf(sec_name, sizeof(sec_name), "subport %d", i);
@@ -688,7 +602,7 @@ int cfg_load_subport(struct rte_cfgfile * cfg)
 		if (rte_cfgfile_has_section(cfg, sec_name)) {
 			struct port_config *port_cfg = &ports_cfg[i];
 			port_cfg->selected = 1;
-			SET_OPTIONAL_INT_CFG(port_c fg->rxring_numa, cfg, entry, sec_name, rxring_numa, uint8_t);
+			SET_OPTIONAL_INT_CFG(port_cfg->rxring_numa, cfg, entry, sec_name, rxring_numa, uint8_t);
 			SET_OPTIONAL_INT_CFG(port_cfg->txring_numa, cfg, entry, sec_name, txring_numa, uint8_t);
 			SET_OPTIONAL_INT_CFG(port_cfg->nb_rxd, cfg, entry, sec_name, nb_rxd, uint16_t);
 			SET_OPTIONAL_INT_CFG(port_cfg->nb_txd, cfg, entry, sec_name, nb_txd, uint16_t);
@@ -736,8 +650,8 @@ int cfg_load_subport(struct rte_cfgfile * cfg)
 				next = strstr(entry, ",");
 				if (next == NULL)
 					break;
-				strncpy(rx_desc, entry, next - entry);
-				port_cfg->nb_rx_desc[tx_desc_cnt++] = (uint16_t)atoi(rx_desc);
+				strncpy(tx_desc, entry, next - entry);
+				port_cfg->nb_rx_desc[tx_desc_cnt++] = (uint16_t)atoi(tx_desc);
 				entry = next + 1;
 			} while (1);
 

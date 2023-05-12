@@ -79,10 +79,11 @@ static void port_reset_cfg(struct port_config* ports_cfg, unsigned int cnt)
 {
     unsigned int i;
     
-    memset(ports_cfg, 0, sizeof(*port_cfg) * cnt);
+    memset(ports_cfg, 0, sizeof(*ports_cfg) * cnt);
     for (i = 0; i < cnt; ++i) {
         struct port_config *port_cfg = &ports_cfg[i];
         port_cfg->ports_id = i;
+        port_cfg->mode = PORT_MODE_NATIVE;
         port_cfg->txring_numa = NUMA_NO_CONFIG;
         port_cfg->rxring_numa = NUMA_NO_CONFIG;
         port_cfg->nb_rxd = RX_DESC_DEFAULT;
@@ -111,5 +112,5 @@ void rt_port_reset_config(void)
     struct port_config* ports_cfg = port_get_config();
 
     ethdev_reset_cfg(ethdev_cfg);
-    port_reset_cfg(ports_cfg);    
+    port_reset_cfg(ports_cfg, RTE_MAX_ETHPORTS);    
 }
