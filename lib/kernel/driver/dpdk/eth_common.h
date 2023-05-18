@@ -19,14 +19,15 @@
 #ifndef _RT_ETH_COMMON_H
 #define _RT_ETH_COMMON_H
 
-#include "driver/rt_ethdev_config.h"
+#include "rte_eth_config.h"
+#include "rte_eth_core.h"
 
 struct rte_eth_dev_info;
 struct rte_cfgfile;
 
 #define EXTMEM_HEAP_NAME "extmem"
 
-#define RT_ETHDEV_LOGTYPE (ethdev_config.logtype)
+#define RT_ETHDEV_LOGTYPE (rte_gethdev_get_config()->log_type)
 
 #define RT_ETHDEV_LOG(level, fmt, args...)  \
     rte_log(RTE_LOG_ ## level, RT_ETHDEV_LOGTYPE, "ethdev: " fmt, ## args)
@@ -35,10 +36,5 @@ int port_id_is_invalid(portid_t port_id);
 
 int eth_dev_info_get_print_err(uint16_t port_id, struct rte_eth_dev_info *dev_info);
 
-int check_socket_id(uint32_t socket_id);
-
-int cfg_load_port(struct rte_cfgfile* profile);
-
-int cfg_load_subport(struct rte_cfgfile* profile);
 
 #endif // _RT_ETH_COMMON_H

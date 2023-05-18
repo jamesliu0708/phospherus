@@ -24,26 +24,28 @@
 /**
  * Store the configuration associated with each port
  */
-struct port_config port_config[RTE_MAX_ETHPORTS];
+struct rte_ethdev_configure ethcfg[RTE_MAX_ETHPORTS];
 
 /**
  * 	Store the configuration of ethdev layer
  */
-struct ethdev_config ethdev_config;
+struct rte_ethlayer_configure gethcfg;
 
 /*
  * Probed Target Environment.
  */
 struct rte_port *ports = NULL;	       /**< For all probed ethernet ports. */
 
-struct port_config* port_get_config(void)
+struct rte_ethlayer_configure* rte_gethdev_get_config(void)
 {
-    return &port_config;
+    return &gethcfg;
 }
 
-struct ethdev_config* ethdev_get_config(void)
+struct rte_ethdev_configure *rte_eth_get_config(uint16_t pid)
 {
-    return &ethdev_config;
+    if (pid >= RTE_MAX_ETHPORTS)    
+        return NULL;
+    return &ethcfg[pid];
 }
 
 #define PORT_INFO_NAME "port_configuration"
@@ -75,7 +77,7 @@ static void ethdev_reset_cfg(struct ethdev_config* ethdev_cfg)
     ethdev_cfg->mb_mempool_cache = DEF_MBUF_CACHE;
 }
 
-static void port_reset_cfg(struct port_config* ports_cfg, unsigned int cnt)
+static void rte_port_reset_config(struct port_config* ports_cfg, unsigned int cnt)
 {
     unsigned int i;
     
@@ -106,10 +108,10 @@ static void port_reset_cfg(struct port_config* ports_cfg, unsigned int cnt)
     }
 }
 
-void rt_port_reset_config(void)
+void rte_port_reset_config(void)
 {
-    struct ethdev_config* ethdev_cfg = ethdev_get_config();
-    struct port_config* ports_cfg = port_get_config();
+    struct ethdev_config* ethdev_cfg = rte_ethdev_get_config();
+    struct port_config* ports_cfg = rte_port_get_config();
 
     ethdev_reset_cfg(ethdev_cfg);
     port_reset_cfg(ports_cfg, RTE_MAX_ETHPORTS);    

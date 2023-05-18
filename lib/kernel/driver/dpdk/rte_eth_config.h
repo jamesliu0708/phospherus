@@ -34,5 +34,5 @@
 #define RSS_TYPES_CHAR_NUM_PER_LINE 64
 
 #define DEF_MBUF_CACHE 250
-#include <driver/rt_ethdev_generic.h>
+#include "rte_eth_generic.h"
 #endif

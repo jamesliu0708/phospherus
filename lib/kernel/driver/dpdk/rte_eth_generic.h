@@ -23,7 +23,7 @@
 typedef uint16_t portid_t;
 typedef uint16_t queueid_t;
 
-#define RTE_PORT_ALL            (~(portid_t)0x0)
+#define RTE_PORT_ALL            (~(uint16_t)0x0)
 #define RTE_PORT_STOPPED        (uint16_t)0
 #define RTE_PORT_STARTED        (uint16_t)1
 #define RTE_PORT_CLOSED         (uint16_t)2
@@ -56,6 +56,9 @@ typedef uint16_t queueid_t;
 
 /* The prefix of the mbuf pool names created by the application. */
 #define MBUF_POOL_NAME_PFX "mb_pool"
+
+#define RTE_ETHERNET_DIR "/dev/shm"
+#define RTE_ETHERDEV_ENV_NAME "eth-gconf"
 
 #ifndef RX_DESC_MAX
 #define RX_DESC_MAX    2048

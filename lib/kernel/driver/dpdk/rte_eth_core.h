@@ -16,14 +16,13 @@
 // under the License.
 
 // Date: Wed Apr 27 16:56:45 CST 2023
-#ifndef _RT_ETHDEV_CORE_H
-#define _RT_ETHDEV_CORE_H
+#ifndef _RTE_ETHDEV_CORE_H
+#define _RTE_ETHDEV_CORE_H
 
 #include <stdint.h>
 #include <rte_ethdev.h>
 #include <rte_mempool.h>
-#include <generic.h>
-#include <driver/rt_ethdev_config.h>
+#include "rte_eth_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,27 +38,20 @@ extern "C" {
 #define RTE_PARAM_UNSET -1
 
 enum {
+#define MP_ALLOC_NATIVE_STR "native-alloc"
 	MP_ALLOC_NATIVE, /**< allocate and populate mempool natively */
+#define MP_ALLOC_ANON_STR "annon-alloc"
 	MP_ALLOC_ANON,
+#define MP_ALLOC_XMEM_STR "xmem-alloc"
 	/**< allocate mempool natively, but populate using anonymous memory */
 	MP_ALLOC_XMEM,
+#define MP_ALLOC_XMEM_HUGE_STR "huge-alloc"
 	/**< allocate and populate mempool using anonymous memory */
 	MP_ALLOC_XMEM_HUGE,
+#define MP_ALLOC_XBUF_STR "xbuf-alloc"
 	/**< allocate and populate mempool using anonymous hugepage memory */
 	MP_ALLOC_XBUF
 	/**< allocate mempool natively, use rte_pktmbuf_pool_create_extbuf */
-};
-
-enum {
-	MP_PER_QUEUE,	/**< create mempool per rx/tx queue */
-	MP_PER_CORE,	/**< creaate mempool per core*/
-	MP_PER_SOCKET,	/**< create mempool per socket */
-};
-
-enum {
-	PORT_MODE_NATIVE,	/**< generic mode using dpdk */
-	PORT_MODE_XDP,		/**< recv/send mode using xdp */
-	PORT_MODE_KNI		/**< interactive with kernel using kni */
 };
 
 /**
@@ -80,7 +72,7 @@ struct rss_type_info {
 struct port_rxqueue {
 	struct rte_eth_rxconf conf;
 	uint8_t state; /**< RTE_ETH_QUEUE_STATE_* value. */
-	lcoreid_t lcore;	/**< local core rx queue runing on */
+	uint16_t lcore;	/**< local core rx queue runing on */
 	struct rte_mempool	*mbp; /**< mempool allocate */
 };
 
@@ -88,41 +80,51 @@ struct port_rxqueue {
 struct port_txqueue {
 	struct rte_eth_txconf conf;
 	uint8_t state; /**< RTE_ETH_QUEUE_STATE_* value. */
-	lcoreid_t lcore;	/**< local core rx queue runing on */
+	uint16_t lcore;	/**< local core rx queue runing on */
 	struct rte_mempool	*mbp; /**< mempool allocate */
 };
 
 /** Information for an extended statistics to show. */
 struct xstat_display_info {
-	/** Supported xstats IDs in the order of xstats_display */
-	uint64_t *ids_supp;
-	size_t   ids_supp_sz;
-	uint64_t *prev_values;
-	uint64_t *curr_values;
-	uint64_t prev_ns;
-	bool	 allocated;
+	// /** Supported xstats IDs in the order of xstats_display */
+	// uint64_t *ids_supp;
+	// size_t   ids_supp_sz;
+	// uint64_t *prev_values;
+	// uint64_t *curr_values;
+	// uint64_t prev_ns;
+	// bool	 allocated;
+};
+
+struct mbuf_pool_configure {
+	/**< Shared mempool with all Ethernet device */
+	uint32_t 	total_num_mbufs; /**< Mbuf data space size. */
+	uint32_t 	mbuf_data_size_n; /**< Number of specified mbuf sizes. */
+	uint16_t 	mbuf_data_size[MAX_SEGS_BUFFER_SPLIT]; /**< Mbuf data space size. */
+	uint16_t	mb_mempool_cache;
+	int			alloc_type; 
+	int 		mp_flag;
 };
 
 /**
  * The data structure associated with each port property configuration.
  */
-struct port_config {
-	portid_t ports_id;
-	int		selected;
-	int		probed;
-	int8_t 	mode;
+struct rte_ethlayer_configure {
+	uint32_t 	log_type;
+	uint32_t	log_level;
+	uint8_t 	socket[RTE_MAX_NUMA_NODES];
+	uint8_t		num_socket;
 
-	const struct rss_type_info* rss_type_table; /**< An entry with a NULL type name terminates the list. */ 
-	uint64_t rss_hf; /**< Receive Side Scaling (RSS) configuration. */
-	
-	char dynf_names[64][RTE_MBUF_DYN_NAMESIZE]; /**< Array that holds the name for each dynf. */
-	
-	uint16_t  nb_rx_desc[RTE_MAX_QUEUES_PER_PORT+1]; /**< per queue rx desc number */
-	uint16_t  nb_tx_desc[RTE_MAX_QUEUES_PER_PORT+1]; /**< per queue tx desc number */
+	struct mbuf_pool_configure gmbp;
+};
 
-	uint8_t rxring_numa; /**< Store specified sockets on which RX ring to be used by ports is allocated. */
-	uint8_t txring_numa; /**< Store specified sockets on which TX ring to be used by ports is allocated. */
-	
+struct rte_ethdev_configure {
+	portid_t port_id;
+	int selected;
+	int kni_flag; /**< Flag to enable kni */
+
+	uint8_t ex_mbp;
+	struct mbuf_pool_configure mbp;
+
 	/**< Ethernet device configuration. */
 	struct rte_eth_rxmode rx_mode;
 	struct rte_eth_txmode tx_mode;
@@ -151,36 +153,13 @@ struct port_config {
 	uint8_t tx_hthresh;
 	uint8_t tx_wthresh;
 
+	uint16_t  nb_rx_desc[RTE_MAX_QUEUES_PER_PORT+1]; /**< per queue rx desc number */
+	uint16_t  nb_tx_desc[RTE_MAX_QUEUES_PER_PORT+1]; /**< per queue tx desc number */
+
 	uint8_t lsc_interrupt;
 	uint8_t no_link_check;
 
 	int	promiscuous_enable;
-};
-
-struct ethdev_config {
-	int8_t	num_sockets;
-	int8_t	num_cpuids;
-	unsigned int socket_ids[RTE_MAX_NUMA_NODES];
-	unsigned int cpu_ids[RTE_MAX_LCORE];
-
-	portid_t nb_ports; /**< Number of ethernet ports probed at init time. */
-	portid_t  nb_cfg_ports; /**< Number of configured ports. */
-	int			logtype; /**< Log type for ethdev logs */
-	uint32_t	level;	/**< Log level for ethdev logs */
-
-	uint32_t 	total_num_mbufs; /**< Mbuf data space size. */
-	uint32_t 	mbuf_data_size_n; /**< Number of specified mbuf sizes. */
-	uint16_t 	mbuf_data_size[MAX_SEGS_BUFFER_SPLIT]; /**< Mbuf data space size. */
-
-	uint8_t 	mp_alloc_type; /**< Select mempool allocation type */
-	uint8_t 	mp_create_type; /**< Select mempool creation type */
-	uint32_t 	mb_mempool_cache; /**< Size of mbuf mempool cache. */
-	uint16_t	mempool_flag; /**< Flag of mempool */
-};
-
-struct rt_eth_lcore {
-	struct rte_mempool *mbp; /**< The mbuf pool to use by this core */
-	lcoreid_t  cpuid_idx;    /**< index of logical core in CPU id table */
 };
 
 /**
@@ -191,8 +170,6 @@ struct rte_port {
 	struct rte_eth_conf     dev_conf;   /**< Port configuration. */
 	struct rte_ether_addr       eth_addr;   /**< Port ethernet address */
 	struct rte_eth_stats    stats;      /**< Last port statistics */
-	unsigned int            socket_id;  /**< For NUMA support */
-	uint16_t		parse_tunnel:1; /**< Parse internal headers */
 	uint16_t                tso_segsz;  /**< Segmentation offload MSS for non-tunneled packets. */
 	volatile uint16_t        port_status;    /**< port started or not */
 	uint8_t                 need_setup;     /**< port just attached */
@@ -217,42 +194,26 @@ struct rte_port {
 	uint64_t		mbuf_dynf;
 	const struct rte_eth_rxtx_callback *tx_set_dynf_cb[RTE_MAX_QUEUES_PER_PORT+1];
 	struct xstat_display_info xstats_info;
-} __rte_cache_aligned;
-
-struct rt_eth_stream {
-	/* "read-only" data */
-	portid_t   rx_portid;   /**< port to poll for received packets */
-	queueid_t  rx_queue;  /**< RX queue to poll on "rx_port" */
-	portid_t   tx_portid;   /**< forwarding port of received packets */
-	queueid_t  tx_queue;  /**< TX queue to send forwarded packets */
-	bool       disabled;  /**< the stream is disabled and should not run */
-
-	/* "read-write" results */
-	uint64_t rx_packets;  /**< received packets */
-	uint64_t tx_packets;  /**< received packets transmitted */
-
-	uint64_t rx_bad_ip_csum ; /**< received packets has bad ip checksum */
-	uint64_t rx_bad_l4_csum ; /**< received packets has bad l4 checksum */
-	uint64_t rx_bad_outer_l4_csum;
-	/**< received packets has bad outer l4 checksum */
-	uint64_t rx_bad_outer_ip_csum;
 };
 
-/**
- * Get the global configuration structure.
- *
- * @return
- *   A pointer to the global port configuration structure.
- */
-struct port_config  *port_get_config(void);
+
+extern int rte_eth_log_type;
 
 /**
- * Get the internal configuration structure.
+ * Get the internal port configuration structure.
+ * 
+ * @param pid 
+ * @return struct rte_port_config* 
+ */
+struct rte_ethdev_configure  *rte_get_eth_config(uint16_t pid);
+
+/**
+ * Get the internal ethdev layer configuration structure.
  *
  * @return
- *   A pointer to the ethdev configuration structure.
+ *   A pointer to the ethdev layer configuration structure.
  */
-struct ethdev_config *ethdev_get_config(void);
+struct rte_ethlayer_configure *rte_gethdev_get_config(void);
 
 /**
  * Get the internal configuration structure.
@@ -260,15 +221,15 @@ struct ethdev_config *ethdev_get_config(void);
  * @return
  *   A pointer to the port structure.
  */
-struct rte_port *rt_eth_get_port(void);
+struct rte_port *rte_eth_get_port(void);
 
 /**
  * Set port config as default configuation
  */
-void rt_port_reset_config(void);
+void rte_port_reset_config(void);
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
 
-#endif //_RT_ETHDEV_CORE_H
+#endif //_RTE_ETHDEV_CORE_H

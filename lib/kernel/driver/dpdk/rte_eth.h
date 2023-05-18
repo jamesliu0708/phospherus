@@ -16,8 +16,8 @@
 // under the License.
 
 // Date: Thur Apr 15 14:13:15 CST 2023
-#ifndef _RT_ETHDEV_H
-#define _RT_ETHDEV_H
+#ifndef _RT_ETH_H
+#define _RT_ETH_H
 
 #include <stdint.h>
 #include <rte_ethdev.h>
@@ -25,11 +25,23 @@
 #include <rte_mempool.h>
 #include <rte_mbuf_dyn.h>
 #include <rte_common.h>
-#include <driver/rt_ethdev_config.h>
+#include "rte_eth_config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
+
+struct pss_port;
+/**
+ * Initialize global configuration
+ * 
+ * @param gpath 
+ *  global configuration path
+ * @return int 
+ *  - On success, zero.
+ * 	- On failure, a negative value.
+ */
+int rte_gcfg_setup(const char* gpath);
 
 /**
  *  Initialize the log module of the ethdev layer
@@ -50,13 +62,15 @@ int rt_eth_log_setup(const char* logname, uint32_t level);
 /**
  * Setup dev port
  *  Load the configuration from a file and initialize dev port
- * @param cfgfile
- *  configuration file path
+ * @param port
+ *  A pointer to port should be initialized.
  * @return int 
  *  - On success, zero.
  * 	- On failure, a negative value.
  */
-int rt_ethdev_setup(const char* cfgfile);
+int rte_eth_setup(struct pss_port* port);
+
+int rte_eth_cleanup(struct rte_port* port);
 
 /**
  * Start the port
@@ -108,4 +122,4 @@ int rt_port_load_cfg(const char * profile);
 }
 #endif /* __cplusplus */
 
-#endif // _RT_ETHDEV_H
+#endif // _RT_ETH_H
