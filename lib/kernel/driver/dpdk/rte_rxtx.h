@@ -2,31 +2,51 @@
 #define _RTE_RXTX_H
 #include <rte_common.h>
 #include <rte_ethdev.h>
-#include <pss_port.h>
 #include <rte_mbuf.h>
+#include <rte_branch_prediction.h>
+#include <pss_port.h>
 #include "rte_eth.h"
 #include "rte_eth_config.h"
 #include "rte_eth_core.h"
 
-__rte_always_inline uint16_t rte_rx_burst(struct pss_port* pp, 
+static __rte_always_inline uint16_t rte_rx_burst(struct pss_port* pp, 
                             uint16_t queue_id, struct pss_pktbuf** pkt, 
                             const unsigned int nb_pkts)
 {
 	struct rte_mbuf *rx_pkts[nb_pkts];
+	struct rte_port *rtp = (struct rte_port*)pp->data;
 	uint16_t ret;
-	unsigned int i;
+	unsigned int i, recv;
+	bool filter;
 
 	ret = rte_eth_rx_burst(pp->port_id, queue_id, rx_pkts, nb_pkts);
+	recv = 0;
 	for (i = 0; i < ret; ++i) {
-		pkt[i]->payload = rte_pktmbuf_mtod(rx_pkts[i], void*);
-		pkt[i]->pktlen = rx_pkts[i]->pkt_len;
-		pkt[i]->pbuf = rx_pkts[i];
+		void *payload = rte_pktmbuf_mtod(rx_pkts[i], void*);
+		if (pp->ops.pkt_filter) {
+			filter = pp->ops.pkt_filter(pp, queue_id, pkt);
+			if (filter) {
+				unsigned int num;
+				if (rtp->kni_enable) {
+					num = rte_kni_tx_burst(rtp->kni, &rx_pkts[i], 1);
+					if (num == 0) {
+						rte_pktmbuf_free(rx_pkts[i]);
+						rx_pkts[i] = NULL;
+					}
+				}
+				continue;
+			}
+		}
+		pkt[recv]->payload = payload;
+		pkt[recv]->pktlen = rx_pkts[i]->pkt_len;
+		pkt[recv]->pbuf = rx_pkts[i];
+		recv++;
 	}
 
 	return ret;
 }
 
-__rte_always_inline uint16_t rte_tx_burst(struct pss_port* pp,
+static __rte_always_inline uint16_t rte_tx_burst(struct pss_port* pp,
                             uint16_t queue_id, struct pss_pktbuf** pkt,
                             const unsigned int nb_pkts)
 {
@@ -40,7 +60,7 @@ __rte_always_inline uint16_t rte_tx_burst(struct pss_port* pp,
 	return rte_eth_tx_burst(pp->port_id, queue_id, tx_pkts, nb_pkts);
 }
 
-__rte_always_inline uint16_t rte_rxtx_alloc(struct pss_port* pp,
+static __rte_always_inline uint16_t rte_rxtx_alloc(struct pss_port* pp,
                             uint16_t queue_id, struct pss_pktbuf** pkt,
                             const unsigned int nb_pkts, void* flag)
 {
@@ -61,7 +81,7 @@ __rte_always_inline uint16_t rte_rxtx_alloc(struct pss_port* pp,
 	return ret;
 }
 
-__rte_always_inline void rte_rxtx_free(struct pss_port* pp,
+static __rte_always_inline void rte_rxtx_free(struct pss_port* pp,
                             uint16_t queue_id, struct pss_pktbuf** pkt,
                             const unsigned int nb_pkts, void* flag)
 {

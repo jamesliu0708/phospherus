@@ -1,0 +1,5 @@
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/ src)
+include_directories(/home/xhliu/work/phospherus/include/core/driver)
+include_directories(/home/xhliu/work/phospherus/in/include)
+include_directories(/home/xhliu/work/phospherus/deps/dpdk-stable-22.11.1/lib/kni)
+add_library(eth SHARED ${src})

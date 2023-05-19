@@ -1,4 +1,4 @@
-#include <driver/pss_port.h>
+#include <pss_port.h>
 #include <rte_memzone.h>
 #include <rte_ethdev.h>
 #include "rte_eth_core.h"
@@ -30,7 +30,7 @@ struct pss_port* pss_port_setup(const char* ifname)
     struct rte_memzone* mz;
     struct pss_port* port;
 
-    int ret = rte_eth_dev_get_port_by_name(ifname, &portid);
+    ret = rte_eth_dev_get_port_by_name(ifname, &portid);
     if (ret < 0) {
         fprintf(stderr, "Ethdev does not exist\n");
         return NULL;

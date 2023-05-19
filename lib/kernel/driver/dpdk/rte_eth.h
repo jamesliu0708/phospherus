@@ -25,12 +25,12 @@
 #include <rte_mempool.h>
 #include <rte_mbuf_dyn.h>
 #include <rte_common.h>
-#include "rte_eth_config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
+struct rte_port;
 struct pss_port;
 /**
  * Initialize global configuration
@@ -42,6 +42,8 @@ struct pss_port;
  * 	- On failure, a negative value.
  */
 int rte_gcfg_setup(const char* gpath);
+
+void rte_rst_config(uint16_t pid);
 
 /**
  *  Initialize the log module of the ethdev layer
@@ -70,6 +72,12 @@ int rt_eth_log_setup(const char* logname, uint32_t level);
  */
 int rte_eth_setup(struct pss_port* port);
 
+/**
+ * @brief 
+ * 
+ * @param port 
+ * @return int 
+ */
 int rte_eth_cleanup(struct rte_port* port);
 
 /**
@@ -78,7 +86,7 @@ int rte_eth_cleanup(struct rte_port* port);
  * @param pid 
  * @return int 
  */
-int rt_port_start(portid_t pid);
+int rte_port_start(uint16_t pid, struct rte_port* port);
 
 /**
  *  Stop the port
@@ -86,7 +94,7 @@ int rt_port_start(portid_t pid);
  * @param pid 
  * 	port id which will be stopped
  */
-void rt_port_stop(portid_t pid);
+int rte_port_stop(uint16_t pid, struct rte_port* port);
 
 /**
  *  Close the port 
@@ -94,29 +102,7 @@ void rt_port_stop(portid_t pid);
  * @param pid 
  * 	port id which will be closed
  */
-void rt_port_close(portid_t pid);
-
-/**
- *  Initialize port configuration
- * 
- * @param pid 
- * 	port id which configuration will be init
- * @return int
- * 	- On success, zero.
- * 	- On failure, a negative value.
- */
-int rt_port_setup_config(portid_t pid);
-
-/**
- * Open confif file and initialize the port configuration
- * 
- * @param profile 
- *  Config file name
- * @return int 
- *  - On sucess, zero
- *  - On failure, a negative value
- */
-int rt_port_load_cfg(const char * profile);
+int rte_port_close(uint16_t pid, struct rte_port* port);
 
 #ifdef __cplusplus
 }

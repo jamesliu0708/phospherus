@@ -20,15 +20,6 @@
 #define _RT_ETHDEV_GENERIC_H
 #include <stdint.h>
 
-typedef uint16_t portid_t;
-typedef uint16_t queueid_t;
-
-#define RTE_PORT_ALL            (~(uint16_t)0x0)
-#define RTE_PORT_STOPPED        (uint16_t)0
-#define RTE_PORT_STARTED        (uint16_t)1
-#define RTE_PORT_CLOSED         (uint16_t)2
-#define RTE_PORT_HANDLING       (uint16_t)3
-
 /*
  * It is used to allocate the memory for hash key.
  * The hash key size is NIC dependent.

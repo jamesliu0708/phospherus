@@ -32,7 +32,7 @@ struct rte_cfgfile;
 #define RT_ETHDEV_LOG(level, fmt, args...)  \
     rte_log(RTE_LOG_ ## level, RT_ETHDEV_LOGTYPE, "ethdev: " fmt, ## args)
 
-int port_id_is_invalid(portid_t port_id);
+int port_id_is_invalid(uint16_t port_id);
 
 int eth_dev_info_get_print_err(uint16_t port_id, struct rte_eth_dev_info *dev_info);
 

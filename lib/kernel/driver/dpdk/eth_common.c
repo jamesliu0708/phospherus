@@ -27,11 +27,11 @@
 #include <rte_cfgfile.h>
 
 int
-port_id_is_invalid(portid_t port_id)
+port_id_is_invalid(uint16_t port_id)
 {
 	uint16_t pid;
 
-	if (port_id == (portid_t)RTE_PORT_ALL)
+	if (port_id == (uint16_t)RTE_PORT_ALL)
 		return 0;
 
 	RTE_ETH_FOREACH_DEV(pid)
@@ -59,7 +59,7 @@ int eth_dev_info_get_print_err(uint16_t port_id,
 
 int check_socket_id(uint32_t socket_id)
 {
-	if (numa_available() < 0 || numa_max_node() > socket_id) 
-		return -1;
+	// if (numa_available() < 0 || numa_max_node() > socket_id) 
+	// 	return -1;
 	return 0;
 }

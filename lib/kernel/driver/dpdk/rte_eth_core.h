@@ -16,8 +16,8 @@
 // under the License.
 
 // Date: Wed Apr 27 16:56:45 CST 2023
-#ifndef _RTE_ETHDEV_CORE_H
-#define _RTE_ETHDEV_CORE_H
+#ifndef _RTE_ETH_CORE_H
+#define _RTE_ETH_CORE_H
 
 #include <stdint.h>
 #include <rte_ethdev.h>
@@ -28,7 +28,7 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#define RTE_PORT_ALL            (~(portid_t)0x0)
+#define RTE_PORT_ALL            (~(uint16_t)0x0)
 
 #define RTE_PORT_STOPPED        (uint16_t)0
 #define RTE_PORT_STARTED        (uint16_t)1
@@ -118,9 +118,9 @@ struct rte_ethlayer_configure {
 };
 
 struct rte_ethdev_configure {
-	portid_t port_id;
+	uint16_t port_id;
 	int selected;
-	int kni_flag; /**< Flag to enable kni */
+	int kni_ifaces; /**< Flag to enable kni */
 
 	uint8_t ex_mbp;
 	struct mbuf_pool_configure mbp;
@@ -132,8 +132,8 @@ struct rte_ethdev_configure {
 
 	uint16_t nb_rxd; /**< Number of queue rx desc number */
 	uint16_t nb_txd; /**< Number of queue tx desc number */
-	queueid_t nb_rxq; /**< Number of rx queue */
-	queueid_t nb_txq; /**< Number of tx queue */
+	uint16_t nb_rxq; /**< Number of rx queue */
+	uint16_t nb_txq; /**< Number of tx queue */
 
 	uint16_t rx_free_thresh; //**< Configurable value of RX free threshold. */
 	uint8_t rx_drop_en; /**< Configurable value of RX drop enable. */
@@ -162,6 +162,7 @@ struct rte_ethdev_configure {
 	int	promiscuous_enable;
 };
 
+struct rte_kni;
 /**
  * The data structure associated with each port.
  */
@@ -183,7 +184,7 @@ struct rte_port {
 	struct port_txqueue     txq[RTE_MAX_QUEUES_PER_PORT+1]; /**< per queue Tx config and state */
 	struct rte_ether_addr   *mc_addr_pool; /**< pool of multicast addrs */
 	uint32_t                mc_addr_nb; /**< nb. of addr. in mc_addr_pool */
-	queueid_t               queue_nb; /**< nb. of queues for flow rules */
+	uint16_t                queue_nb; /**< nb. of queues for flow rules */
 	uint32_t                queue_sz; /**< size of a queue for flow rules */
 	uint8_t                 slave_flag : 1, /**< bonding slave port */
 				update_conf : 1; /**< need to update bonding device configuration */
@@ -194,6 +195,8 @@ struct rte_port {
 	uint64_t		mbuf_dynf;
 	const struct rte_eth_rxtx_callback *tx_set_dynf_cb[RTE_MAX_QUEUES_PER_PORT+1];
 	struct xstat_display_info xstats_info;
+	struct rte_kni			*kni;
+	uint8_t 				kni_enable;
 };
 
 
@@ -205,7 +208,7 @@ extern int rte_eth_log_type;
  * @param pid 
  * @return struct rte_port_config* 
  */
-struct rte_ethdev_configure  *rte_get_eth_config(uint16_t pid);
+struct rte_ethdev_configure  *rte_eth_get_config(uint16_t pid);
 
 /**
  * Get the internal ethdev layer configuration structure.
@@ -232,4 +235,4 @@ void rte_port_reset_config(void);
 }
 #endif /* __cplusplus */
 
-#endif //_RTE_ETHDEV_CORE_H
+#endif //_RTE_ETH_CORE_H

@@ -1,14 +1,16 @@
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_common.h>
-#include <rte_alarm.h>
-#include <rte_cycles.h>
+#include <rte_malloc.h>
 #include <rte_mempool.h>
+#include <rte_mbuf_pool_ops.h>
 #include <rte_cfgfile.h>
+#include <rte_kni.h>
 #include <rte_lcore.h>
 #include <rte_mbuf.h>
 #include <pss_port.h>
@@ -238,7 +240,7 @@ static int setup_extmem(uint32_t nb_mbufs, uint32_t mbuf_sz, bool huge)
 }
 
 static unsigned int setup_extbuf(uint32_t nb_mbufs, uint16_t mbuf_sz, unsigned int socket_id,
-	    char *pool_name, struct rte_pktmbuf_extmem **ext_mem)
+	    const char *pool_name, struct rte_pktmbuf_extmem **ext_mem)
 {
 	struct rte_pktmbuf_extmem *xmem;
 	unsigned int ext_num, zone_num, elt_num;
@@ -432,7 +434,7 @@ static struct rte_mempool * mbuf_pool_create(const char* pool_name, const char* 
 			RT_ETHDEV_LOG(INFO, "preferred mempool ops selected: %s\n",
 					rte_mbuf_best_mempool_ops());
 			rte_mp = rte_pktmbuf_pool_create_extbuf
-					(pool_name, nb_mbuf, (unsigned int) mbcfg->mb_mempool_cache,
+					(pool_name, nb_mbuf, (unsigned int)mbcfg->mb_mempool_cache,
 					 0, mbuf_seg_size, socket_id,
 					 ext_mem, ext_num);
 			free(ext_mem);
@@ -452,14 +454,6 @@ err:
 	return rte_mp;
 }
 
-static inline struct rte_mempool *mbuf_pool_find(unsigned int tag_id, uint16_t idx)
-{
-	char pool_name[RTE_MEMPOOL_NAMESIZE];
-
-	mbuf_poolname_build(tag_id, pool_name, sizeof(pool_name), idx);
-	return rte_mempool_lookup((const char *)pool_name);
-}
-
 /* Mbuf Pools */
 static inline void
 mbuf_poolname_build(unsigned int sock_id, char *mp_name,
@@ -471,6 +465,28 @@ mbuf_poolname_build(unsigned int sock_id, char *mp_name,
 	else
 		snprintf(mp_name, name_size,
 			 MBUF_POOL_NAME_PFX "_%hu_%hu", (uint16_t)sock_id, idx);
+}
+
+static inline struct rte_mempool *mbuf_pool_find(unsigned int tag_id, uint16_t idx)
+{
+	char pool_name[RTE_MEMPOOL_NAMESIZE];
+
+	mbuf_poolname_build(tag_id, pool_name, sizeof(pool_name), idx);
+	return rte_mempool_lookup((const char *)pool_name);
+}
+
+static int
+get_eth_overhead(struct rte_eth_dev_info *dev_info)
+{
+	uint32_t eth_overhead;
+
+	if (dev_info->max_mtu != UINT16_MAX &&
+	    dev_info->max_rx_pktlen > dev_info->max_mtu)
+		eth_overhead = dev_info->max_rx_pktlen - dev_info->max_mtu;
+	else
+		eth_overhead = RTE_ETHER_HDR_LEN + RTE_ETHER_CRC_LEN;
+
+	return eth_overhead;
 }
 
 int rte_load_gcfg(const char *profile) 
@@ -576,6 +592,64 @@ _app_load_cfg_profile_error_return:
 	rte_cfgfile_close(file);
 
 	return ret;
+}
+
+static void rte_rst_gconfig(void)
+{
+	struct rte_ethlayer_configure* ethcfg = rte_gethdev_get_config();
+	ethcfg->log_type = -1;
+	ethcfg->log_level = RTE_LOG_DEBUG;
+	memset(ethcfg->socket, 0, sizeof(ethcfg->socket));
+	ethcfg->gmbp.total_num_mbufs = 0;
+	ethcfg->gmbp.mbuf_data_size_n = 1;
+	memset(ethcfg->gmbp.mbuf_data_size, 0, sizeof(ethcfg->gmbp.mbuf_data_size));
+	ethcfg->gmbp.mbuf_data_size[0] = DEFAULT_MBUF_DATA_SIZE;
+	ethcfg->gmbp.mb_mempool_cache = 0;
+	ethcfg->gmbp.alloc_type = MP_ALLOC_NATIVE;
+	ethcfg->gmbp.mp_flag = 0;
+}
+
+static void rte_rst_eth_cfg(uint16_t pid)
+{
+	struct rte_ethdev_configure *ethcfg = rte_eth_get_config(pid);
+	if (ethcfg == NULL)
+		return;
+	
+	ethcfg->port_id = pid;
+	ethcfg->ex_mbp = 0;
+	ethcfg->nb_rxd = RX_DESC_DEFAULT;
+	ethcfg->nb_txd = TX_DESC_DEFAULT;
+	ethcfg->nb_rxq = 1;
+	ethcfg->nb_txq = 1;
+	ethcfg->rx_free_thresh = RTE_PARAM_UNSET;
+	ethcfg->rx_drop_en = RTE_PARAM_UNSET;
+	ethcfg->tx_free_thresh = RTE_PARAM_UNSET;
+	ethcfg->tx_rs_thresh = RTE_PARAM_UNSET;
+	ethcfg->rx_pthresh = RTE_PARAM_UNSET;
+	ethcfg->tx_hthresh = RTE_PARAM_UNSET;
+	ethcfg->rx_wthresh = RTE_PARAM_UNSET;
+	ethcfg->tx_pthresh = RTE_PARAM_UNSET;
+	ethcfg->tx_hthresh = RTE_PARAM_UNSET;
+	ethcfg->tx_wthresh = RTE_PARAM_UNSET;
+	ethcfg->lsc_interrupt = 0;
+	ethcfg->no_link_check = 1;
+	ethcfg->promiscuous_enable = 0;
+}
+
+void rte_rst_config(uint16_t pid)
+{
+	uint16_t i;
+	struct rte_ethdev_configure* ethcfg = rte_eth_get_config(pid);
+
+	if (pid == RTE_PORT_ALL) {
+		rte_rst_gconfig();
+		
+		for (i = 0; i < RTE_MAX_ETHPORTS; ++i) {
+			rte_rst_eth_cfg(i);
+		}
+	} else 
+		rte_rst_eth_cfg(pid);
+	
 }
 
 int rte_gcfg_setup(const char* gpath)
@@ -723,10 +797,10 @@ static int rte_eth_load_config(const char* ifname, uint16_t portid) {
 	char if_cfgpath[100];
 	char sec_name[64];
 	char *next = NULL;
-	char *entry = NULL;
+	const char *entry = NULL;
 	unsigned int rx_desc_cnt = 0, tx_desc_cnt = 0;
 	struct rte_cfgfile *file = NULL;
-	struct rte_ethdev_configure *ethcfg = rte_get_eth_config(portid);
+	struct rte_ethdev_configure *ethcfg = rte_eth_get_config(portid);
 
 	snprintf(if_cfgpath, sizeof(if_cfgpath), "%s/%s", RTE_ETHERNET_DIR, ifname);
 	file = rte_cfgfile_load(if_cfgpath, 0);
@@ -737,10 +811,11 @@ static int rte_eth_load_config(const char* ifname, uint16_t portid) {
 	if (!rte_cfgfile_has_section(file, sec_name))
 		return -1;
 	
+	SET_OPTIONAL_INT_CFG(ethcfg->nb_rxd, file, entry, sec_name, kni_ifaces, int);
 	SET_OPTIONAL_INT_CFG(ethcfg->nb_rxd, file, entry, sec_name, nb_rxd, uint16_t);
 	SET_OPTIONAL_INT_CFG(ethcfg->nb_txd, file, entry, sec_name, nb_txd, uint16_t);
-	SET_OPTIONAL_INT_CFG(ethcfg->nb_rxq, file, entry, sec_name, nb_rxq, queueid_t);
-	SET_OPTIONAL_INT_CFG(ethcfg->nb_txq, file, entry, sec_name, nb_txq, queueid_t);
+	SET_OPTIONAL_INT_CFG(ethcfg->nb_rxq, file, entry, sec_name, nb_rxq, uint16_t);
+	SET_OPTIONAL_INT_CFG(ethcfg->nb_txq, file, entry, sec_name, nb_txq, uint16_t);
 	SET_OPTIONAL_INT_CFG(ethcfg->rx_free_thresh, file, entry, sec_name, rx_free_thresh, uint16_t);
 	SET_OPTIONAL_INT_CFG(ethcfg->rx_drop_en, file, entry, sec_name, rx_drop_en, uint8_t);
 	SET_OPTIONAL_INT_CFG(ethcfg->tx_free_thresh, file, entry, sec_name, tx_free_thresh, uint16_t);
@@ -755,10 +830,10 @@ static int rte_eth_load_config(const char* ifname, uint16_t portid) {
 	SET_OPTIONAL_INT_CFG(ethcfg->lsc_interrupt, file, entry, sec_name, lsc_interrupt, uint8_t);
 	SET_OPTIONAL_INT_CFG(ethcfg->no_link_check, file, entry, sec_name, no_link_check, uint8_t);
 	SET_OPTIONAL_INT_CFG(ethcfg->promiscuous_enable, file, entry, sec_name, promiscuous_enable, int);
-	rx_offloads_parse(ethcfg, sec_name, &ethcfg->rx_mode.offloads);
-	tx_offloads_parse(ethcfg, sec_name, &ethcfg->tx_mode.offloads);
+	rx_offloads_parse(file, sec_name, &ethcfg->rx_mode.offloads);
+	tx_offloads_parse(file, sec_name, &ethcfg->tx_mode.offloads);
 
-	entry = rte_cfgfile_get_entry(ethcfg, sec_name, "rx_desc");
+	entry = rte_cfgfile_get_entry(file, sec_name, "rx_desc");
 	if (entry == NULL)
 		return -1;
 	do {
@@ -771,7 +846,7 @@ static int rte_eth_load_config(const char* ifname, uint16_t portid) {
 		entry = next + 1;
 	} while (1);
 
-	entry = rte_cfgfile_get_entry(ethcfg, sec_name, "tx_desc");
+	entry = rte_cfgfile_get_entry(file, sec_name, "tx_desc");
 	if (entry == NULL)
 		return -1;
 	do {
@@ -796,7 +871,7 @@ static int rte_eth_load_config(const char* ifname, uint16_t portid) {
 	return 0;
 }
 
-static int eth_dev_start_mp(portid_t port_id)
+static int eth_dev_start_mp(uint16_t port_id)
 {
 	int ret;
 
@@ -809,12 +884,22 @@ static int eth_dev_start_mp(portid_t port_id)
 	return 0;
 }
 
+static int
+eth_dev_configure_mp(uint16_t port_id, uint16_t nb_rx_q, uint16_t nb_tx_q,
+		      const struct rte_eth_conf *dev_conf)
+{
+	if (rte_eal_process_type() == RTE_PROC_PRIMARY)
+		return rte_eth_dev_configure(port_id, nb_rx_q, nb_tx_q,
+					dev_conf);
+	return 0;
+}
+
 int rte_port_start(uint16_t pid, struct rte_port* port)
 {
 	int diag;
 	unsigned int i;
 	uint16_t qi;
-	struct rte_ethdev_configure* p_cfg = rte_eth_get_config();
+	struct rte_ethdev_configure* p_cfg = rte_eth_get_config(pid);
 
 	if (port->port_status == RTE_PORT_STOPPED)
 			port->port_status = RTE_PORT_HANDLING;
@@ -845,7 +930,7 @@ int rte_port_start(uint16_t pid, struct rte_port* port)
 		}
 		/* get device configuration*/
 		if (0 !=
-			eth_dev_conf_get_print_err(pid, &dev_conf)) {
+			eth_dev_info_get_print_err(pid, &port->dev_info)) {
 			RT_ETHDEV_LOG(ERR,
 				"port %d can not get device configuration\n",
 				pid);
@@ -921,7 +1006,7 @@ int rte_port_start(uint16_t pid, struct rte_port* port)
 			port->rxq[qi].conf.rx_nseg = 0;
 			port->rxq[qi].conf.rx_mempools = NULL;
 			port->rxq[qi].conf.rx_nmempool = 0;
-			diag = rte_eth_rx_queue_setup(pid, qi, p_cfg->nb_rx_desc,
+			diag = rte_eth_rx_queue_setup(pid, qi, p_cfg->nb_rx_desc[qi],
 						rte_eth_dev_socket_id(pid), &port->rxq[qi].conf, mp);
 			if (diag == 0)
 				continue;
@@ -1130,6 +1215,12 @@ static int rxtx_port_setup(struct rte_port* port, struct rte_ethdev_configure* p
 static int rte_port_setup(struct rte_port* port, struct rte_ethdev_configure* p_cfg)
 {
 	int ret;
+	if (p_cfg->kni_ifaces) {
+		ret = rte_kni_init(p_cfg->kni_ifaces);
+		if (ret != 0)
+			return -1;
+	}
+
 	ret = rte_port_offload_setup(port, p_cfg);
 	if (ret != 0)
 		return -1;
@@ -1145,10 +1236,28 @@ static int rte_port_setup(struct rte_port* port, struct rte_ethdev_configure* p_
     return 0;
 }
 
+static struct rte_kni* kni_alloc(struct pss_port* ps_p, struct rte_ethdev_configure* p_cfg) {
+	uint8_t i;
+    struct rte_kni_conf conf;
+    struct rte_kni *kni;
+	struct rte_port *rtp = (struct rte_port*)ps_p->data;
+
+	memset(&conf, 0, sizeof(conf));
+    conf.group_id = p_cfg->port_id;
+	if (p_cfg->ex_mbp)
+    	conf.mbuf_size = p_cfg->mbp.mbuf_data_size[0];
+    else 
+		conf.mbuf_size = rte_gethdev_get_config()->gmbp.mbuf_data_size[0];
+	snprintf(conf.name, sizeof(conf.name), "v%s", ps_p->name);
+    kni = rte_kni_alloc(rtp->rxq[0].mbp, &conf, NULL);
+
+	return kni;
+}
+
 int rte_eth_setup(struct pss_port* ps_p) {
 	struct rte_port* rt_p = (struct rte_port*)ps_p->data;
 	uint16_t portid = ps_p->port_id;
-	struct rte_ethdev_configure* p_cfg = rte_eth_get_config();
+	struct rte_ethdev_configure* p_cfg = rte_eth_get_config(portid);
 	int ret;
 
 	if (rt_p->port_status == RTE_PORT_STARTED || rt_p->port_status == RTE_PORT_HANDLING) {
@@ -1182,6 +1291,12 @@ int rte_eth_setup(struct pss_port* ps_p) {
 		}
 	}
 
+	if (rt_p->kni_enable) {
+		rt_p->kni = kni_alloc(ps_p, p_cfg);
+		if (rt_p->kni == NULL)
+			goto failed;
+	}
+
 	ps_p->ops.pkt_alloc = rte_rxtx_alloc;
 	ps_p->ops.pkt_free = rte_rxtx_free;
 	ps_p->ops.pkt_rx_burst = rte_rx_burst;
@@ -1189,7 +1304,7 @@ int rte_eth_setup(struct pss_port* ps_p) {
 
 	return 0;
 failed:
-	rte_eth_cleanup(p_cfg);
+	rte_port_stop(portid, rt_p);
 	return -1;
 }
 
@@ -1204,4 +1319,50 @@ static int eth_dev_stop_mp(uint16_t port_id)
 	}
 
 	return 0;
+}
+
+int rte_port_stop(uint16_t pid, struct rte_port* port)
+{
+	int ret;
+
+	if (port->port_status == RTE_PORT_STOPPED || port->port_status == RTE_PORT_CLOSED)
+		return 0;
+
+	if (port->port_status == RTE_PORT_STARTED)
+		port->port_status = RTE_PORT_HANDLING;
+	
+	if (port->kni_enable && port->kni) {
+		ret = rte_kni_release(port->kni);
+		if (ret != 0) {
+			RT_ETHDEV_LOG(ERR, "release kni failed for port %u\n",
+				pid);
+			port->port_status == RTE_PORT_STARTED;
+			return -1;
+		}
+	}
+
+	ret = eth_dev_stop_mp(pid);
+	if (ret != 0) {
+		RT_ETHDEV_LOG(ERR, "stop failed for port %u\n",
+			pid);
+		port->port_status == RTE_PORT_STARTED;
+		return -1;
+	}
+
+	if (port->port_status == RTE_PORT_HANDLING)
+		port->port_status = RTE_PORT_STOPPED;
+
+	return 0;
+}
+
+int rte_port_close(uint16_t pid, struct rte_port* port)
+{
+	int ret;
+
+	if (port->port_status == RTE_PORT_CLOSED)
+		return 0;
+	
+	ret = rte_eth_dev_close(pid);
+
+	return ret;
 }
