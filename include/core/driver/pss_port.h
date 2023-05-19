@@ -60,15 +60,25 @@ typedef void (*rxtx_pkt_free_t)(struct pss_port* port,
                             uint16_t queue_id, struct pss_pktbuf** pkt,
                             const unsigned int nb_pkt, void* flag);
 
+/**
+ * Filter the buffer stream for receive pkts
+ * 
+ * @return typedef 
+ */
+typedef bool (*rxtx_pkt_filter_t)(struct pss_port* port,
+                            uint16_t queue_id, const void* pkt);
+
 struct pss_port_ops {
     /** PMD receive function. */
     pkt_rx_burst_t pkt_rx_burst;
+    /** Filter recv package */
+    rxtx_pkt_filter_t pkt_filter;
     /** PMD transmit function. */
     pkt_tx_burst_t pkt_tx_burst;
     /** Alloc package */
     rxtx_pkt_alloc_t pkt_alloc;
     /** Free package */
-    rxtx_pkt_free_t pkt_free;
+    rxtx_pkt_free_t pkt_free;    
 };
 
 #define PTE_PORT_NAME_LEN 100
@@ -116,31 +126,37 @@ void pss_port_cleanup(struct pss_port* port);
 
 
 __rte_always_inline uint16_t pss_pkt_rx_burst(struct pss_port* port, 
-                            uint16_t queue_id, void** pkt, 
+                            uint16_t queue_id, struct pss_pktbuf** pkt, 
                             const unsigned int nb_pkts) 
 {
-    return port->ops.pkt_rx_burst(queue_id, queue_id, pkt, nb_pkts);
+    return port->ops.pkt_rx_burst(port, queue_id, pkt, nb_pkts);
 }
 
 __rte_always_inline uint16_t pss_pkt_tx_burst(struct pss_port* port,
-                            uint16_t queue_id, void** pkt,
+                            uint16_t queue_id, struct pss_pktbuf** pkt,
                             const unsigned int nb_pkts) 
 {
-    return port->ops.pkt_tx_burst(queue_id, queue_id, pkt, nb_pkts);
+    return port->ops.pkt_tx_burst(port, queue_id, pkt, nb_pkts);
 }
 
 __rte_always_inline uint16_t pss_rxtx_pkt_alloc(struct pss_port* port,
-                            uint16_t queue_id, void** pkt,
+                            uint16_t queue_id, struct pss_pktbuf** pkt,
                             const unsigned int nb_pkts, void* flag) 
 {
     return port->ops.pkt_alloc(port, queue_id, pkt, nb_pkts, flag);
 }
 
 __rte_always_inline void pss_rxtx_pkt_free(struct pss_port* port,
-                            uint16_t queue_id, void** pkt,
+                            uint16_t queue_id, struct pss_pktbuf** pkt,
                             const unsigned int nb_pkt, void* flag)
 {
     return port->ops.pkt_free(port, queue_id, pkt, nb_pkt, flag);
+}
+
+__rte_always_inline void pss_set_pkt_filter(struct pss_port* port, 
+                            rxtx_pkt_filter_t filter)
+{
+    port->ops.pkt_filter = filter;
 }
 
 #ifdef __cplusplus
