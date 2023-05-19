@@ -1,3 +1,0 @@
-/home/xhliu/work/phospherus/lib/kernel/driver/dpdk/build/CMakeFiles/eth.dir
-/home/xhliu/work/phospherus/lib/kernel/driver/dpdk/build/CMakeFiles/edit_cache.dir
-/home/xhliu/work/phospherus/lib/kernel/driver/dpdk/build/CMakeFiles/rebuild_cache.dir
